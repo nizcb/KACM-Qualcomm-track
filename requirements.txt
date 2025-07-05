@@ -1,0 +1,26 @@
+# Neurosort Vision Agent - Requirements
+# Hackathon Qualcomm Edge-AI
+
+# Core ML/CV libraries
+opencv-python==4.8.1.78
+easyocr==1.7.1
+Pillow==10.1.0
+numpy==1.24.3
+
+# ONNX Runtime for NSFW detection
+onnxruntime==1.16.3
+
+# API & Data handling
+pydantic==2.5.0
+requests==2.31.0
+
+# Optional: Alternative OCR engines
+# tesseract==0.1.3
+# pytesseract==0.3.10
+
+# Optional: NSFW detection (si besoin d'un modèle plus avancé)
+# transformers==4.35.2
+# torch==2.1.1
+
+# Logging & Utils
+colorlog==6.8.0
