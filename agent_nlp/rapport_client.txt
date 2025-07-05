@@ -1,0 +1,39 @@
+Rapport de Service Client - Confidentiel
+
+Date : 15 janvier 2025
+Agent : Julie Martin
+Référence : SC-2025-001234
+
+=== INFORMATIONS CLIENT ===
+
+Nom : Marie Dupont
+Email : marie.dupont@gmail.com
+Téléphone : +33 6 12 34 56 78
+Adresse : 123 Rue de la Paix, 75001 Paris
+
+=== TRANSACTION ===
+
+Carte utilisée : 4242 4242 4242 4242
+Date d'expiration : 12/27
+Montant : 349.99€
+Référence transaction : TRX-789456123
+
+=== PROBLÈME SIGNALÉ ===
+
+Le client signale un dysfonctionnement du produit acheté hier.
+Le système de paiement a bien fonctionné, mais le produit présente
+un défaut de fabrication. Le client souhaite un remboursement complet.
+
+=== SOLUTION APPORTÉE ===
+
+Remboursement approuvé pour le montant total.
+Le remboursement sera effectué sur la carte bancaire d'origine.
+Délai de traitement : 3-5 jours ouvrables.
+
+=== SUIVI ===
+
+Email de confirmation envoyé au client.
+Ticket de support créé : #SUP-2025-7894
+Statut : Résolu
+
+Fin du rapport.
