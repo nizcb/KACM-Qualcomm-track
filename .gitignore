@@ -1,0 +1,19 @@
+# add files to ignore here
+# This file is used to ignore files in the repository.
+*.json
+*.llama_summary.json
+*.llama_summary.txt
+*.txt
+*.log
+*.db
+*.sqlite
+*.db-journal
+*.db-wal
+*.db-shm
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.egg-info/
+*.egg
+*.mp3

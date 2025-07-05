@@ -1,0 +1,304 @@
+"""
+audio_summary_agent.py
+
+Detailed Explanation:
+---------------------
+This script provides a complete audio processing pipeline that transcribes audio files, indexes them in a vector database, and generates AI-powered summaries with security analysis. It combines Whisper for transcription, ChromaDB for semantic search, and LLaMA for intelligent content analysis.
+
+How it works:
+- Transcribes audio files using OpenAI's Whisper model (with GPU acceleration if available)
+- Stores transcripts and metadata in a local ChromaDB vector database for semantic search
+- Uses LLaMA (via Ollama) to generate summaries and analyze content for security-sensitive information
+- Saves all results (transcripts, metadata, summaries) to the data/audio/ directory
+
+Dependencies:
+- whisper: For speech-to-text transcription (pip install openai-whisper)
+- chromadb: Vector database for storing and searching embeddings (pip install chromadb)
+- torch: For running Whisper with GPU acceleration (pip install torch)
+- spacy: For natural language processing (pip install spacy)
+- ollama: For running LLaMA models locally (install from https://ollama.ai/)
+- subprocess, json, os, re: Python's built-in modules
+
+Key Features:
+- Complete audio-to-summary pipeline in one class
+- GPU-accelerated transcription when available
+- Semantic search capabilities over transcript collection
+- AI-powered content analysis and security assessment
+- Automatic file organization and metadata management
+
+Usage Examples:
+    # Initialize the agent
+    agent = AudioSummaryAgent()
+    
+    # Process a new audio file
+    result = agent.summarize_from_audio("meeting.mp3")
+    
+    # Search existing transcripts and summarize
+    result = agent.summarize("What did John say about the budget?")
+"""
+
+# Import required libraries
+import chromadb  # Vector database for semantic search
+from chromadb.utils import embedding_functions  # Default embedding functions
+import subprocess  # For running external commands (Ollama)
+import json  # For JSON file handling
+import os  # For file and directory operations
+import re  # For regular expression matching
+import whisper  # OpenAI's speech-to-text model
+import torch  # PyTorch for GPU acceleration
+import spacy  # Natural language processing library
+
+class AudioSummaryAgent:
+    """
+    A comprehensive audio processing agent that handles transcription, indexing, and AI-powered summarization.
+    
+    This class provides a complete pipeline for:
+    - Audio transcription using Whisper
+    - Vector database storage using ChromaDB
+    - AI-powered content analysis using LLaMA
+    """
+    
+    def __init__(self, db_path="chroma_db", data_path="data/audio", collection_name="audio_transcripts"):
+        """
+        Initialize the AudioSummaryAgent with necessary components.
+        
+        Args:
+            db_path (str): Path to ChromaDB database directory
+            data_path (str): Path to store audio transcripts and metadata
+            collection_name (str): Name of the ChromaDB collection
+        """
+        # Store configuration paths
+        self.db_path = db_path
+        self.data_path = data_path
+        self.collection_name = collection_name
+
+        # Create data directory if it doesn't exist
+        os.makedirs(self.data_path, exist_ok=True)
+
+        # Initialize ChromaDB client with persistent storage
+        self.client = chromadb.PersistentClient(path=db_path)
+        
+        # Get or create the collection for audio transcripts
+        self.collection = self.client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=embedding_functions.DefaultEmbeddingFunction()  # Use default embeddings
+        )
+
+        # Initialize Whisper model with GPU support if available
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"  # Check for GPU availability
+        # Print device information
+        print("🔧 PyTorch version:", torch.__version__)
+        print("🖥️ Using device:", self.device.upper())
+        print("📊 CUDA available:", torch.cuda.is_available())
+        print("📊 CUDA device count:", torch.cuda.device_count())
+        
+        # Print GPU information if available
+        if torch.cuda.is_available():
+            print("⚡ GPU:", torch.cuda.get_device_name(0))
+            print("💾 GPU memory:", f"{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        else:
+            print("⚠️ Running on CPU - GPU acceleration not available")
+        # Existing models: "tiny", "base", "small", "medium", or "large"
+        self.whisper_model = whisper.load_model("medium").to(self.device)  # Load medium model and move to device
+
+        # Initialize spaCy NLP model for text processing
+        self.nlp = spacy.load("en_core_web_sm")
+
+    def transcribe_audio(self, audio_path, forced_lang=None):
+        """
+        Transcribe an audio file to text using Whisper.
+        
+        Args:
+            audio_path (str): Path to the audio file
+            forced_lang (str, optional): Force a specific language for transcription
+            
+        Returns:
+            tuple: (document_id, transcript_text, metadata_dict)
+        """
+        # Print transcription status
+        print(f"🎧 Transcribing: {audio_path}")
+        
+        # Run Whisper transcription with or without language forcing
+        result = self.whisper_model.transcribe(audio_path, language=forced_lang) if forced_lang else self.whisper_model.transcribe(audio_path)
+        
+        # Extract transcript text from result
+        transcript = result["text"]
+
+        # Generate base filename without extension for file naming
+        base = os.path.splitext(os.path.basename(audio_path))[0]
+        
+        # Define output file paths
+        txt_path = os.path.join(self.data_path, f"{base}.transcript.txt")  # Transcript text file
+        json_path = os.path.join(self.data_path, f"{base}.metadata.json")  # Metadata JSON file
+
+        # Save transcript text to file
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(transcript)
+
+        # Create metadata dictionary with file info
+        metadata = {
+            "filepath": os.path.abspath(audio_path),  # Absolute path to original audio
+            "language": result.get("language", "unknown"),  # Detected language
+            "transcript": transcript  # Full transcript text
+        }
+
+        # Save metadata as JSON file
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)  # Pretty print with UTF-8 support
+
+        # Return document ID, transcript, and metadata
+        return base, transcript, metadata
+
+    def index_transcript(self, doc_id, transcript, metadata):
+        """
+        Add or update a transcript in the ChromaDB collection.
+        
+        Args:
+            doc_id (str): Unique identifier for the document
+            transcript (str): Full transcript text
+            metadata (dict): Document metadata
+        """
+        # Upsert document into ChromaDB collection
+        self.collection.upsert(
+            documents=[transcript],  # Document text for embedding
+            ids=[doc_id],  # Unique document identifier
+            metadatas=[{  # Metadata to store alongside
+                "filepath": metadata["filepath"],
+                "language": metadata["language"]
+            }]
+        )
+        # Confirm successful indexing
+        print(f"✅ Indexed {doc_id} into ChromaDB")
+
+    def summarize(self, query_text: str, model_name="llama3") -> dict:
+        """
+        Search for the most relevant transcript and generate a summary.
+        
+        Args:
+            query_text (str): Search query to find relevant transcript
+            model_name (str): LLaMA model name to use for summarization
+            
+        Returns:
+            dict: Summary and analysis results from LLaMA
+        """
+        # Search ChromaDB for most relevant transcript
+        results = self.collection.query(query_texts=[query_text], n_results=1)
+
+        # Extract search results
+        doc_id = results['ids'][0][0]  # Document ID of best match
+        transcript = results['documents'][0][0]  # Transcript text
+        metadata = results['metadatas'][0][0]  # Document metadata
+
+        # Generate summary using LLaMA
+        return self._run_llama(doc_id, transcript, metadata, model_name)
+
+    def summarize_from_audio(self, audio_path: str, forced_lang=None, model_name="llama3") -> dict:
+        """
+        Complete pipeline: transcribe audio, index it, and generate summary.
+        
+        Args:
+            audio_path (str): Path to audio file to process
+            forced_lang (str, optional): Force specific language for transcription
+            model_name (str): LLaMA model name for summarization
+            
+        Returns:
+            dict: Summary and analysis results from LLaMA
+        """
+        # Step 1: Transcribe the audio file
+        doc_id, transcript, metadata = self.transcribe_audio(audio_path, forced_lang)
+        
+        # Step 2: Index the transcript in ChromaDB
+        self.index_transcript(doc_id, transcript, metadata)
+        
+        # Step 3: Generate summary using LLaMA
+        return self._run_llama(doc_id, transcript, metadata, model_name)
+
+    def _run_llama(self, doc_id, transcript, metadata, model_name):
+        """
+        Run LLaMA model to analyze transcript and generate summary.
+        
+        Args:
+            doc_id (str): Document identifier
+            transcript (str): Full transcript text
+            metadata (dict): Document metadata
+            model_name (str): LLaMA model name
+            
+        Returns:
+            dict: Parsed JSON response from LLaMA or error information
+        """
+        # Create detailed prompt for LLaMA analysis
+        prompt = f'''
+You are an assistant helping organize and protect user files. The following is a transcript of an audio file:
+
+"""{transcript}"""
+
+Your task is to:
+1. Summarize the file content in no more than 6 lines.
+2. Identify if the speaker shared any SECURITY-SENSITIVE information such as:
+   - Credit card numbers, passwords, API keys, tokens
+   - Social security numbers, government IDs
+   - Names, addresses, phone numbers, emails
+   - Age, birthdate, personal contracts
+   - Any information that could be used for identity theft or scams
+
+IMPORTANT: Do NOT classify emotions, fears, opinions, or general personal thoughts as sensitive information.
+
+3. Determine if this file needs to be protected based ONLY on:
+   - Actual sensitive security data (like passwords, credit cards, SSN, etc.)
+   - Nudity or sexual content
+   - Information that could be used for identity theft or scams
+
+Do NOT protect files that only contain emotions, fears, or personal opinions.
+
+Return your response as a valid JSON object in this format:
+
+{{
+  "summary": "<A concise summary of the transcript in no more than 6 lines>",
+  "contains_pii": false,
+  "protect": false,
+  "reason": "<Explain why protection is or isn't needed>",
+  "filepath": "{metadata['filepath']}"
+}}
+
+and make sure the filepath is correctly formatted with double backslashes (\\) for Windows paths. And for macOs and Linux, use single forward slashes (/).
+
+'''
+
+        # Print status message
+        print("🦙 Running LLaMA via Ollama...")
+        
+        # Execute Ollama command with the prompt
+        result = subprocess.run(
+            ["ollama", "run", model_name, prompt],  # Command to run LLaMA
+            stdout=subprocess.PIPE,  # Capture standard output
+            stderr=subprocess.PIPE,  # Capture error output
+            text=True, encoding="utf-8"  # Text mode with UTF-8 encoding
+        )
+
+        try:
+            # Extract JSON from LLaMA output using regex
+            match = re.search(r"\{[\s\S]*\}", result.stdout)  # Find JSON pattern
+            if match:
+                # Parse the JSON response
+                llama_json = json.loads(match.group(0))
+            else:
+                # Raise error if no JSON found
+                raise ValueError("No JSON found in LLaMA output.")
+
+            # Save LLaMA summary to file
+            llama_path = os.path.join(self.data_path, f"{doc_id}.llama_summary.json")
+            with open(llama_path, "w", encoding="utf-8") as f:
+                json.dump(llama_json, f, indent=2, ensure_ascii=False)  # Pretty print with UTF-8
+
+            # Return parsed JSON response
+            return llama_json
+
+        except Exception as e:
+            # Return error information if parsing fails
+            return {
+                "summary": None,
+                "contains_pii": None,
+                "protect": None,
+                "reason": f"Failed to parse LLaMA output: {e}",
+                "filepath": metadata['filepath']
+            }
