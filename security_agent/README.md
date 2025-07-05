@@ -1,23 +1,138 @@
-# Security Agent MVP
+# Agent de Sécurité - Security Agent
 
-**Agent de sécurité spécialisé dans le chiffrement cryptographique et la gestion de vault pour architecture multi-agents avec Coral MCP.**
+## Description
+Agent de sécurité intelligent pour le chiffrement, déchiffrement et gestion sécurisée des fichiers avec interface web Streamlit.
 
-## 🎯 Vue d'ensemble
+## Architecture
+- **Agent Principal** : `security_agent_consolidated.py` (FastAPI)
+- **Interface Web** : `streamlit_interface.py` (Streamlit)
+- **Stockage Sécurisé** : Base de données SQLite + Vault
+- **Chiffrement** : AES-256 avec gestion des clés
 
-Le Security Agent MVP se concentre exclusivement sur la gestion cryptographique des fichiers sensibles. Il reçoit des fichiers déjà identifiés comme sensibles par d'autres agents (Vision/NLP) via le File Manager, les chiffre avec AES-256, et maintient un vault sécurisé.
+## Installation
 
-### Architecture
+### 1. Installer les dépendances
+```bash
+pip install -r requirements_consolidated.txt
+```
+
+### 2. Vérifier l'installation
+```bash
+python3 -c "import fastapi, streamlit, pyAesCrypt; print('✅ Toutes les dépendances sont installées')"
+```
+
+## Utilisation
+
+### Méthode 1 : Démarrage automatique
+```bash
+python3 start_application.py
+```
+
+### Méthode 2 : Démarrage manuel
+**Terminal 1 - Agent de sécurité :**
+```bash
+python3 security_agent_consolidated.py
+```
+
+**Terminal 2 - Interface web :**
+```bash
+python3 -m streamlit run streamlit_interface.py --server.port 8501
+```
+
+## Accès aux applications
+
+- **Agent API** : http://localhost:8000
+- **Interface Web** : http://localhost:8501
+- **Documentation API** : http://localhost:8000/docs
+
+## Fonctionnalités
+
+### Agent de Sécurité (API)
+- ✅ Chiffrement de fichiers (AES-256)
+- ✅ Déchiffrement sécurisé
+- ✅ Gestion des clés avec keyring
+- ✅ Base de données SQLite pour métadonnées
+- ✅ API RESTful avec FastAPI
+- ✅ Logs et monitoring
+
+### Interface Web (Streamlit)
+- ✅ Upload de fichiers
+- ✅ Chiffrement en temps réel
+- ✅ Gestion des fichiers chiffrés
+- ✅ Déchiffrement et téléchargement
+- ✅ Statistiques et monitoring
+- ✅ Interface intuitive
+
+## Structure des dossiers
 
 ```
-Vision Agent ──┐
-                ├── détection sensible ──> File Manager ──> Security Agent
-NLP Agent ────┘                                              (chiffrement + vault)
+security_agent/
+├── security_agent_consolidated.py  # Agent principal
+├── streamlit_interface.py          # Interface web
+├── requirements_consolidated.txt   # Dépendances
+├── README.md                       # Documentation
+├── .gitignore                      # Fichiers ignorés
+├── vault/                          # Base de données
+│   └── vault.db                    # Métadonnées SQLite
+├── encrypted/                      # Fichiers chiffrés
+│   └── *.aes                       # Fichiers AES
+└── decrypted/                      # Fichiers déchiffrés temporaires
+    └── *.txt                       # Fichiers temporaires
 ```
 
-### Responsabilités
+## Dépannage
 
-- **Chiffrement AES-256** : Utilise pyAesCrypt pour le chiffrement des fichiers
-- **Gestion des clés** : Intégration avec macOS Keychain via keyring
+### Problèmes courants
+
+**1. Port déjà utilisé**
+```bash
+# Vérifier les ports
+lsof -i :8000  # Agent
+lsof -i :8501  # Streamlit
+
+# Arrêter les processus
+kill -9 <PID>
+```
+
+**2. Dépendances manquantes**
+```bash
+# Réinstaller les dépendances
+pip install --upgrade -r requirements_consolidated.txt
+```
+
+**3. Erreur de permissions**
+```bash
+# Vérifier les permissions des dossiers
+chmod 755 vault/ encrypted/ decrypted/
+```
+
+## Version
+Version consolidée - Toutes les fonctionnalités dans des fichiers unifiés pour faciliter le déploiement et la maintenance.
+- **Vault SQLite** pour métadonnées et traçabilité
+- **API HTTP complète** avec FastAPI
+- **Interface MCP** pour l'orchestrateur
+- **Interface web Streamlit** pour tests et monitoring
+- **Gestion sécurisée des clés** via macOS Keychain
+
+## 📡 API Endpoints
+
+- `POST /encrypt` - Chiffrer un fichier
+- `POST /decrypt` - Déchiffrer un fichier  
+- `GET /vault_status` - Statut du vault
+- `GET /health` - Santé de l'agent
+- `POST /mcp/task` - Interface MCP pour orchestrateur
+
+## 🔄 Workflow
+
+1. File Manager détecte fichiers sensibles
+2. Envoi MCP vers Security Agent
+3. Chiffrement AES-256 avec salt unique
+4. Stockage vault avec métadonnées
+5. Réponse MCP avec UUID et hash
+
+---
+
+**Architecture**: Vision/NLP → File Manager → Security Agent (chiffrement + vault)
 - **Vault SQLite** : Base de données pour métadonnées et traçabilité
 - **API HTTP** : Endpoints pour chiffrement/déchiffrement ad-hoc
 - **Intégration MCP** : Traitement par lots depuis le File Manager
