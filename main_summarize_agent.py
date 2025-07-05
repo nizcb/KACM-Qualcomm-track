@@ -1,5 +1,5 @@
 import sys
-from agents.audio_summary_agent import AudioSummaryAgent
+from audio_summary_agent import AudioSummaryAgent
 
 lenArgv = len(sys.argv)
 # Check for command-line argument
