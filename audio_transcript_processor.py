@@ -170,29 +170,7 @@ class AudioSummaryAgent:
         # Confirm successful indexing
         print(f"✅ Indexed {doc_id} into ChromaDB")
 
-    def summarize(self, query_text: str, model_name="llama3") -> dict:
-        """
-        Search for the most relevant transcript and generate a summary.
-        
-        Args:
-            query_text (str): Search query to find relevant transcript
-            model_name (str): LLaMA model name to use for summarization
-            
-        Returns:
-            dict: Summary and analysis results from LLaMA
-        """
-        # Search ChromaDB for most relevant transcript
-        results = self.collection.query(query_texts=[query_text], n_results=1)
-
-        # Extract search results
-        doc_id = results['ids'][0][0]  # Document ID of best match
-        transcript = results['documents'][0][0]  # Transcript text
-        metadata = results['metadatas'][0][0]  # Document metadata
-
-        # Generate summary using LLaMA
-        return self._run_llama(doc_id, transcript, metadata, model_name)
-
-    def summarize_from_audio(self, audio_path: str, forced_lang=None, model_name="llama3") -> dict:
+    def summarize_from_audio(self, audio_path: str, forced_lang=None, model_name="llama3.1:8b") -> dict:
         """
         Complete pipeline: transcribe audio, index it, and generate summary.
         
