@@ -11,6 +11,19 @@ Pipeline complet:
 - Extraction de tags sémantiques pour indexation
 """
 
+# CRITIQUES : Fixes de compatibilité à exécuter AVANT les autres imports
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# Fix PIL/Pillow ANTIALIAS pour nouvelles versions
+try:
+    from PIL import Image
+    if not hasattr(Image, 'ANTIALIAS'):
+        Image.ANTIALIAS = Image.LANCZOS
+        print("Fix PIL ANTIALIAS appliqué")
+except ImportError:
+    pass
+
 import asyncio
 import cv2
 import easyocr
@@ -26,6 +39,15 @@ from typing import List, Optional, Tuple
 import json
 import time
 import threading
+
+# Fix pour compatibilité PIL/Pillow - ANTIALIAS déprécié
+try:
+    from PIL import Image
+    # Fix pour les nouvelles versions de Pillow
+    if not hasattr(Image, 'ANTIALIAS'):
+        Image.ANTIALIAS = Image.LANCZOS
+except ImportError:
+    pass
 
 # Import ONNX pour détection NSFW
 try:
@@ -215,11 +237,18 @@ class VisionAgent:
         logger.info("Agent Vision initialisé")
     
     def _init_ocr(self):
-        """Initialise EasyOCR de manière lazy"""
+        """Initialise EasyOCR de manière lazy avec cache global"""
         if self.ocr_reader is None:
-            logger.info("Initialisation EasyOCR...")
-            self.ocr_reader = easyocr.Reader(['fr', 'en'], gpu=False)
-            logger.info("EasyOCR initialisé")
+            try:
+                # Utiliser le cache global pour éviter les réinitialisations
+                self.ocr_reader = get_global_ocr_reader()
+                logger.info("OCR global réutilisé pour cette instance")
+                
+            except Exception as e:
+                logger.error(f"Erreur initialisation EasyOCR: {e}")
+                logger.error("Vérifiez que torch et torchvision sont installés correctement")
+                self.ocr_reader = None
+                raise
     
     def _load_image(self, path: str, bytes_data: Optional[bytes] = None) -> Optional[np.ndarray]:
         """Charge une image depuis un chemin ou des bytes"""
@@ -233,7 +262,52 @@ class VisionAgent:
                 if not Path(path).exists():
                     logger.error(f"Fichier non trouvé: {path}")
                     return None
-                return cv2.imread(path)
+                
+                # Solution pour les caractères spéciaux dans les chemins Windows
+                # Utiliser PIL puis convertir en OpenCV
+                try:
+                    # Méthode 1: Utiliser PIL pour éviter les problèmes d'encodage
+                    pil_image = Image.open(path)
+                    # Convertir PIL en array numpy puis en format OpenCV (BGR)
+                    if pil_image.mode == 'RGBA':
+                        # Convertir RGBA en RGB puis BGR
+                        pil_image = pil_image.convert('RGB')
+                    elif pil_image.mode == 'L':
+                        # Image en niveaux de gris
+                        return np.array(pil_image)
+                    
+                    # Convertir RGB en BGR pour OpenCV
+                    image_array = np.array(pil_image)
+                    if len(image_array.shape) == 3:
+                        return cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+                    else:
+                        return image_array
+                        
+                except Exception as pil_error:
+                    logger.warning(f"Échec chargement PIL: {pil_error}, tentative OpenCV...")
+                    
+                    # Méthode 2: Fallback avec cv2.imdecode pour éviter les caractères spéciaux
+                    try:
+                        # Lire le fichier en bytes puis décoder
+                        with open(path, 'rb') as f:
+                            file_bytes = f.read()
+                        
+                        # Convertir bytes en array numpy
+                        nparr = np.frombuffer(file_bytes, np.uint8)
+                        
+                        # Décoder l'image
+                        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        
+                        if image is not None:
+                            return image
+                        else:
+                            logger.error(f"Impossible de décoder l'image: {path}")
+                            return None
+                            
+                    except Exception as decode_error:
+                        logger.error(f"Échec décodage OpenCV: {decode_error}")
+                        return None
+                        
         except Exception as e:
             logger.error(f"Erreur chargement image: {e}")
             return None
@@ -260,13 +334,34 @@ class VisionAgent:
         try:
             logger.info(f"📄 Conversion PDF en cours: {pdf_path}")
             
-            # Paramètres de conversion optimisés
+            # Paramètres de conversion optimisés pour la vitesse
             conversion_params = {
-                'dpi': 200,  # Balance qualité/vitesse
+                'dpi': 150,  # Réduire DPI pour plus de vitesse (au lieu de 200)
                 'fmt': 'RGB',
-                'thread_count': 2,
-                'use_pdftocairo': True  # Meilleure qualité si disponible
+                'thread_count': 4,  # Augmenter threads
+                'use_pdftocairo': False,  # Plus rapide que cairo
+                'grayscale': False,
+                'transparent': False,
+                'poppler_path': None  # Sera configuré automatiquement
             }
+            
+            # Configuration FORCÉE du chemin Poppler pour CONDA
+            import sys
+            import os
+            
+            # CHEMIN CONDA FORCÉ - C:\Users\chaki\anaconda3\Library\bin
+            conda_poppler_path = r"C:\Users\chaki\anaconda3\Library\bin"
+            
+            # Vérifier que le chemin conda existe et contient pdftoppm.exe
+            pdftoppm_exe = os.path.join(conda_poppler_path, 'pdftoppm.exe')
+            
+            if os.path.exists(pdftoppm_exe):
+                conversion_params['poppler_path'] = conda_poppler_path
+                logger.info(f"🔧 Poppler CONDA utilisé: {conda_poppler_path}")
+            else:
+                logger.error(f"❌ Poppler CONDA non trouvé: {pdftoppm_exe}")
+                # Pas de fallback - on force conda uniquement
+                raise Exception(f"Poppler non trouvé dans conda: {conda_poppler_path}")
             
             # Extraire pages spécifiques ou toutes
             if extract_pages:
@@ -306,25 +401,104 @@ class VisionAgent:
             return []
     
     def _extract_text_ocr(self, image: np.ndarray) -> str:
-        """Extrait le texte d'une image avec OCR"""
+        """Extrait le texte d'une image avec OCR robuste"""
         try:
             self._init_ocr()
             
-            # EasyOCR
-            results = self.ocr_reader.readtext(image)
+            # Vérifier que l'image est valide
+            if image is None:
+                logger.error("Image None passée à l'OCR")
+                return ""
             
-            # Concaténer tout le texte détecté
+            # Gérer différents formats d'image
+            if len(image.shape) == 2:
+                # Image en niveaux de gris - convertir en RGB
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                logger.info(f"Image niveaux de gris convertie en RGB: {image.shape} → {rgb_image.shape}")
+            elif len(image.shape) == 3 and image.shape[2] == 3:
+                # Image BGR standard - convertir en RGB
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            elif len(image.shape) == 3 and image.shape[2] == 4:
+                # Image RGBA - convertir en RGB
+                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+                logger.info(f"Image RGBA convertie en RGB: {image.shape} → {rgb_image.shape}")
+            else:
+                logger.error(f"Format d'image non supporté pour OCR: {image.shape}")
+                return ""
+            
+            # 2. Améliorer le contraste si nécessaire
+            gray = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
+            
+            # Vérifier si l'image est trop sombre ou trop claire
+            mean_brightness = np.mean(gray)
+            if mean_brightness < 50 or mean_brightness > 200:
+                # Égalisation d'histogramme pour améliorer le contraste
+                gray = cv2.equalizeHist(gray)
+                rgb_image = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+                logger.info(f"Image prétraitée pour OCR (luminosité: {mean_brightness:.1f})")
+            
+            # 3. EasyOCR avec gestion d'erreur robuste
+            try:
+                # Essayer d'abord avec l'image prétraitée
+                results = self.ocr_reader.readtext(rgb_image)
+                
+                # Si pas de résultats, essayer avec l'image originale
+                if not results and len(image.shape) == 3:
+                    logger.info("Tentative OCR avec image originale...")
+                    original_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                    results = self.ocr_reader.readtext(original_rgb)
+                
+            except Exception as ocr_error:
+                logger.error(f"Erreur EasyOCR: {ocr_error}")
+                
+                # Fallback: essayer avec image en niveaux de gris
+                try:
+                    logger.info("Fallback OCR avec image en niveaux de gris...")
+                    if len(image.shape) == 3:
+                        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    else:
+                        gray = image
+                    results = self.ocr_reader.readtext(gray)
+                except Exception as fallback_error:
+                    logger.error(f"Fallback OCR échoué: {fallback_error}")
+                    return ""
+            
+            # 4. Traiter les résultats
             text_parts = []
-            for (bbox, text, confidence) in results:
-                if confidence > 0.5:  # Seuil de confiance
-                    text_parts.append(text)
+            for result in results:
+                try:
+                    # Format EasyOCR: (bbox, text, confidence)
+                    if len(result) >= 3:
+                        bbox, text, confidence = result[0], result[1], result[2]
+                        
+                        # Seuil de confiance adaptatif
+                        min_confidence = 0.3  # Plus permissif que 0.5
+                        
+                        if confidence > min_confidence and text.strip():
+                            text_parts.append(text.strip())
+                            logger.debug(f"OCR: '{text}' (conf: {confidence:.2f})")
+                        
+                except Exception as result_error:
+                    logger.warning(f"Erreur traitement résultat OCR: {result_error}")
+                    continue
             
+            # 5. Assembler le texte final
             full_text = " ".join(text_parts)
-            logger.info(f"OCR extrait {len(full_text)} caractères")
+            
+            # Nettoyer le texte (enlever les caractères bizarres)
+            full_text = re.sub(r'[^\w\s\.,;:!?\-()]+', ' ', full_text)
+            full_text = re.sub(r'\s+', ' ', full_text).strip()
+            
+            logger.info(f"OCR extrait {len(full_text)} caractères ({len(text_parts)} segments)")
+            
+            if len(full_text) == 0:
+                logger.warning("Aucun texte extrait par OCR - image peut contenir uniquement des éléments visuels")
+            
             return full_text
             
         except Exception as e:
-            logger.error(f"Erreur OCR: {e}")
+            logger.error(f"Erreur OCR globale: {e}")
+            logger.error(f"Type image: {type(image)}, Shape: {getattr(image, 'shape', 'N/A')}")
             return ""
     
     def _detect_text_pii(self, text: str) -> tuple[bool, List[str], List[PIISpan]]:
@@ -348,19 +522,38 @@ class VisionAgent:
         
         return pii_detected, pii_types, pii_spans
     
-    async def _detect_visual_pii(self, image: np.ndarray) -> List[str]:
+    async def _detect_visual_pii(self, image: np.ndarray, cached_text: str = "") -> List[str]:
         """
         Détecte les PII visuels avancés:
         - CARD_PHOTO: carte bancaire (logos + 16 chiffres)
         - ID_DOC: passeport/carte d'identité (MRZ)
         - NUDITY: contenu NSFW (modèle ONNX + fallback)
+        
+        Args:
+            image: Image à analyser
+            cached_text: Texte OCR déjà extrait pour éviter la re-extraction
         """
         visual_pii = []
         
         try:
-            # === 1. DÉTECTION CARTE BANCAIRE ===
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            # Normaliser le format d'image
+            if len(image.shape) == 2:
+                # Image en niveaux de gris - convertir en BGR pour compatibilité
+                work_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+                gray = image  # Déjà en niveaux de gris
+            elif len(image.shape) == 3 and image.shape[2] == 3:
+                # Image BGR standard
+                work_image = image
+                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            elif len(image.shape) == 3 and image.shape[2] == 4:
+                # Image RGBA - convertir en BGR
+                work_image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+                gray = cv2.cvtColor(work_image, cv2.COLOR_BGR2GRAY)
+            else:
+                logger.error(f"Format d'image non supporté pour détection PII: {image.shape}")
+                return visual_pii
             
+            # === 1. DÉTECTION CARTE BANCAIRE ===
             # Recherche de contours rectangulaires (forme carte)
             contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             
@@ -377,22 +570,31 @@ class VisionAgent:
                     
                     # Ratio typique carte bancaire: 1.586 (ISO/IEC 7810 ID-1)
                     if 1.4 < aspect_ratio < 1.8 and area > 5000:
-                        # Extraire la zone et chercher des patterns carte
-                        roi = image[y:y+h, x:x+w] if y+h <= image.shape[0] and x+w <= image.shape[1] else None
+                        # Utiliser le texte OCR déjà extrait si possible
+                        if cached_text:
+                            roi_text = cached_text
+                        else:
+                            # Extraire la zone et chercher des patterns carte
+                            roi = work_image[y:y+h, x:x+w] if y+h <= work_image.shape[0] and x+w <= work_image.shape[1] else None
+                            if roi is not None:
+                                roi_text = self._extract_text_ocr(roi)
+                            else:
+                                roi_text = ""
                         
-                        if roi is not None:
-                            roi_text = self._extract_text_ocr(roi)
-                            
-                            # Recherche pattern carte (16 chiffres) + logos possibles
-                            if (self.pii_patterns["CARD_NUMBER"].search(roi_text) or
-                                re.search(r'VISA|MASTERCARD|AMERICAN EXPRESS', roi_text.upper())):
-                                visual_pii.append("CARD_PHOTO")
-                                logger.info("💳 Carte bancaire détectée dans l'image")
-                                break
+                        # Recherche pattern carte (16 chiffres) + logos possibles
+                        if (self.pii_patterns["CARD_NUMBER"].search(roi_text) or
+                            re.search(r'VISA|MASTERCARD|AMERICAN EXPRESS', roi_text.upper())):
+                            visual_pii.append("CARD_PHOTO")
+                            logger.info("💳 Carte bancaire détectée dans l'image")
+                            break
             
             # === 2. DÉTECTION DOCUMENT D'IDENTITÉ ===
-            # Recherche de motifs MRZ (Machine Readable Zone)
-            full_text = self._extract_text_ocr(image)
+            # Utiliser le texte OCR déjà extrait si disponible
+            if cached_text:
+                full_text = cached_text
+            else:
+                # Recherche de motifs MRZ (Machine Readable Zone)
+                full_text = self._extract_text_ocr(work_image)
             
             # Pattern MRZ passeport français: P<FRA... (44 caractères)
             # Pattern MRZ carte ID: I<FRA... (30 caractères)
@@ -408,8 +610,8 @@ class VisionAgent:
                     logger.info("🆔 Document d'identité détecté (MRZ)")
                     break
             
-            # === 3. DÉTECTION CONTENU NSFW ===
-            is_nsfw = await self._detect_nsfw_content(image)
+            # === 3. DÉTECTION CONTENU NSFW (Rapide) ===
+            is_nsfw = await self._detect_nsfw_content_fast(work_image)
             if is_nsfw:
                 visual_pii.append("NUDITY")
                 logger.warning("🚨 Contenu NSFW détecté - classification confidentielle")
@@ -476,6 +678,51 @@ class VisionAgent:
             
         except Exception as e:
             logger.error(f"❌ Erreur détection NSFW: {e}")
+            return False  # En cas d'erreur, considérer comme safe
+    
+    async def _detect_nsfw_content_fast(self, image: np.ndarray) -> bool:
+        """
+        Version rapide de détection NSFW - seulement fallback
+        Retourne True si score > 0.85 (seulement analyse tons chair)
+        """
+        try:
+            # === FALLBACK RAPIDE: DÉTECTION DE PEAU ===
+            logger.debug("🔄 Détection NSFW rapide (tons chair uniquement)")
+            
+            # Conversion en HSV pour meilleure détection de peau
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            
+            # Plages de couleurs pour tons chair (optimisées)
+            skin_ranges = [
+                ([0, 48, 80], [20, 255, 255]),      # Teint clair
+                ([0, 50, 50], [15, 200, 200]),      # Teint moyen  
+            ]
+            
+            total_skin_pixels = 0
+            total_pixels = image.shape[0] * image.shape[1]
+            
+            for lower, upper in skin_ranges:
+                lower_skin = np.array(lower, dtype=np.uint8)
+                upper_skin = np.array(upper, dtype=np.uint8)
+                
+                skin_mask = cv2.inRange(hsv, lower_skin, upper_skin)
+                skin_pixels = np.sum(skin_mask > 0)
+                total_skin_pixels += skin_pixels
+            
+            # Éviter le double comptage
+            total_skin_pixels = min(total_skin_pixels, total_pixels)
+            skin_ratio = total_skin_pixels / total_pixels
+            
+            # Seuil fallback (75% pour plus de rapidité)
+            fallback_threshold = 0.75
+            is_nsfw_fallback = skin_ratio > fallback_threshold
+            
+            logger.debug(f"🔍 NSFW rapide: {skin_ratio:.2%} (seuil: {fallback_threshold:.0%}) → {'⚠️ NSFW' if is_nsfw_fallback else '✅ Safe'}")
+            
+            return is_nsfw_fallback
+            
+        except Exception as e:
+            logger.error(f"❌ Erreur détection NSFW rapide: {e}")
             return False  # En cas d'erreur, considérer comme safe
     
     async def _generate_summary(self, text: str, visual_context: str = "") -> str:
@@ -782,7 +1029,7 @@ Résumé (4-7 phrases max):
             for page_num, image in enumerate(images, 1):
                 logger.info(f"📄 Analyse page {page_num}/{pages_count}")
                 
-                # OCR par page
+                # OCR par page (une seule fois)
                 page_text = self._extract_text_ocr(image)
                 if page_text.strip():
                     all_extracted_text.append(f"Page {page_num}: {page_text}")
@@ -803,8 +1050,8 @@ Résumé (4-7 phrases max):
                         )
                         all_pii_spans.append(adjusted_span)
                 
-                # PII visuelle par page (cartes, ID, NSFW)
-                visual_pii = await self._detect_visual_pii(image)
+                # PII visuelle par page (réutiliser le texte OCR déjà extrait)
+                visual_pii = await self._detect_visual_pii(image, page_text)
                 if visual_pii:
                     pii_detected = True
                     all_pii_types.extend(visual_pii)
@@ -895,6 +1142,27 @@ class Agent:
 
 # Instance globale de l'agent
 vision_agent_instance = VisionAgent()
+
+# Cache global pour EasyOCR (partagé entre toutes les instances)
+_global_ocr_reader = None
+
+def get_global_ocr_reader():
+    """Récupère l'instance OCR globale (singleton)"""
+    global _global_ocr_reader
+    if _global_ocr_reader is None:
+        logger.info("Initialisation EasyOCR globale...")
+        import warnings
+        warnings.filterwarnings("ignore", category=FutureWarning)
+        
+        _global_ocr_reader = easyocr.Reader(
+            ['fr', 'en'], 
+            gpu=False,
+            verbose=False,
+            download_enabled=True
+        )
+        logger.info("EasyOCR global initialisé")
+    
+    return _global_ocr_reader
 
 # Agent Coral
 vision_agent = Agent(
