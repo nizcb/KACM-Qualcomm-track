@@ -1,0 +1,22 @@
+# Security Agent MVP - Consolidated Version Requirements
+# Toutes les dépendances pour le security_agent_consolidated.py
+
+# Core FastAPI dependencies
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.5.0
+
+# Cryptography
+pyAesCrypt>=6.1.0
+keyring>=24.3.0
+
+# Database
+# SQLite est inclus avec Python (pas besoin d'installation séparée)
+
+# HTTP client (optionnel pour tests)
+httpx>=0.25.0
+requests>=2.31.0
+
+# Development/Testing (optionnel)
+pytest>=7.4.0
+pytest-asyncio>=0.21.0

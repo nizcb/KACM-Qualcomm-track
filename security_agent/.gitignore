@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+venv/
+.venv/
+
+# Security Agent data (keep structure but ignore content)
+vault/vault.db
+vault/master.key
+encrypted/*.aes
+decrypted/*
+!encrypted/.gitkeep
+!decrypted/.gitkeep
+!vault/.gitkeep
+
+# Logs
+*.log
+agent.log
+
+# Temporary files
+test_*.txt
+temp_*
+*.tmp
