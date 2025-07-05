@@ -61,42 +61,75 @@ class Config:
         self._ensure_directories()
     
     def _ensure_directories(self):
-        """Créer les répertoires nécessaires."""
+        """
+        Créer les répertoires nécessaires avec permissions appropriées.
+        Compatible cross-platform.
+        """
+        import stat
+        
         for directory in [self.vault_path, self.encrypted_path, self.decrypted_path]:
             directory.mkdir(parents=True, exist_ok=True)
+            
+            # Définir les permissions de manière cross-platform
+            try:
+                # Sur Unix/Linux/macOS : 755 (rwxr-xr-x)
+                # Sur Windows : les permissions sont gérées différemment
+                if hasattr(os, 'chmod'):
+                    os.chmod(directory, stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH)
+            except (OSError, AttributeError):
+                # Ignorer les erreurs de permissions sur Windows
+                pass
     
     def get_master_key(self) -> str:
         """
         Récupère la clé maître depuis keyring ou crée une nouvelle.
+        Compatible cross-platform avec fallback.
         
         Returns:
             str: La clé maître
         """
-        # Try keyring first
-        master_key = keyring.get_password(self.keyring_service, self.keyring_username)
-        
-        if master_key:
-            return master_key
+        # Try keyring first (cross-platform)
+        try:
+            master_key = keyring.get_password(self.keyring_service, self.keyring_username)
+            if master_key:
+                return master_key
+        except Exception as e:
+            # Keyring peut échouer sur certains systèmes Linux
+            print(f"⚠️ Keyring non disponible: {e}")
         
         # Try environment variable (dev only)
         if self.master_password_env:
-            # Store in keyring for future use
-            keyring.set_password(self.keyring_service, self.keyring_username, self.master_password_env)
+            # Try to store in keyring for future use
+            try:
+                keyring.set_password(self.keyring_service, self.keyring_username, self.master_password_env)
+            except Exception:
+                pass  # Ignore keyring errors
             return self.master_password_env
         
-        # Generate new key
+        # Fallback: Generate new key and try to store
         new_key = secrets.token_urlsafe(32)
-        keyring.set_password(self.keyring_service, self.keyring_username, new_key)
+        try:
+            keyring.set_password(self.keyring_service, self.keyring_username, new_key)
+        except Exception as e:
+            print(f"⚠️ Impossible de stocker dans keyring: {e}")
+            print(f"💡 Clé générée: {new_key}")
+            print("💡 Définissez NEUROSORT_MASTER_PWD pour persister la clé")
+        
         return new_key
     
     def set_master_key(self, key: str):
         """
         Définit une nouvelle clé maître.
+        Compatible cross-platform avec fallback.
         
         Args:
             key: La nouvelle clé maître
         """
-        keyring.set_password(self.keyring_service, self.keyring_username, key)
+        try:
+            keyring.set_password(self.keyring_service, self.keyring_username, key)
+        except Exception as e:
+            print(f"⚠️ Impossible de stocker la clé dans keyring: {e}")
+            print("💡 Utilisez la variable d'environnement NEUROSORT_MASTER_PWD")
 
 
 # ================================
