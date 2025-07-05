@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """
-Security Agent - Version Simplifiée
-Agent de sécurité avec chiffrement et interface Streamlit
+Security Agent Core - Agent de sécurité principal
+Gestion du chiffrement, déchiffrement et vault
 
 Usage:
-    python security_agent.py
-
-Fonctionnalités:
-- Chiffrement/déchiffrement de fichiers
-- Interface Streamlit simple
-- Intégration Llama 3.2 pour les explications
-- Authentification par phrase secrète
+    from security_agent_core import SecurityAgent
+    agent = SecurityAgent()
 """
 
 import os
@@ -20,13 +15,10 @@ import hashlib
 import uuid
 import secrets
 import subprocess
-import threading
 import time
 import requests
-import json
 from pathlib import Path
 from datetime import datetime
-import tempfile
 
 # Configuration
 BASE_DIR = Path(__file__).parent
@@ -40,35 +32,7 @@ ENCRYPTED_DIR.mkdir(exist_ok=True)
 DECRYPTED_DIR.mkdir(exist_ok=True)
 
 VAULT_DB = VAULT_DIR / "vault.db"
-SECRET_PHRASE = "mon_secret_ultra_securise_2024"  # Phrase secrète pour l'authentification
-
-# ================================
-# INSTALLATION DES DÉPENDANCES
-# ================================
-
-def install_dependencies():
-    """Installe les dépendances nécessaires"""
-    print("🔍 Vérification des dépendances...")
-    
-    packages = ["streamlit", "pyAesCrypt", "requests", "pandas"]
-    
-    for package in packages:
-        try:
-            __import__(package)
-            print(f"   ✅ {package}")
-        except ImportError:
-            print(f"   📦 Installation de {package}...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-    
-    print("✅ Dépendances OK")
-
-# Installation des dépendances
-install_dependencies()
-
-# Imports après installation
-import streamlit as st
-import pyAesCrypt
-import pandas as pd
+SECRET_PHRASE = "mon_secret_ultra_securise_2024"
 
 # ================================
 # GESTIONNAIRE OLLAMA
@@ -225,6 +189,13 @@ class VaultManager:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Fichier non trouvé: {file_path}")
         
+        # Vérifier que pyAesCrypt est disponible
+        try:
+            import pyAesCrypt
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pyAesCrypt"])
+            import pyAesCrypt
+        
         # Générer UUID et chemins
         file_uuid = str(uuid.uuid4())
         filename = os.path.basename(file_path)
@@ -262,6 +233,13 @@ class VaultManager:
     
     def decrypt_file(self, file_uuid, output_path=None):
         """Déchiffre un fichier"""
+        # Vérifier que pyAesCrypt est disponible
+        try:
+            import pyAesCrypt
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "pyAesCrypt"])
+            import pyAesCrypt
+            
         conn = sqlite3.connect(str(VAULT_DB))
         cursor = conn.cursor()
         
@@ -324,170 +302,65 @@ class VaultManager:
         }
 
 # ================================
-# INTERFACE STREAMLIT
+# AGENT PRINCIPAL
 # ================================
 
-def main():
-    """Interface principale Streamlit"""
-    st.set_page_config(
-        page_title="🔐 Security Agent",
-        page_icon="🔐",
-        layout="wide"
-    )
+class SecurityAgent:
+    """Agent de sécurité principal"""
     
-    st.title("🔐 Security Agent - Chiffrement de Fichiers")
-    st.markdown("---")
+    def __init__(self):
+        self.vault_manager = VaultManager()
+        self.ollama_manager = OllamaManager()
+        self.secret_phrase = SECRET_PHRASE
+        
+    def start_ollama(self):
+        """Démarre Ollama"""
+        return self.ollama_manager.start_ollama()
     
-    # Initialiser les managers
-    if 'vault_manager' not in st.session_state:
-        st.session_state.vault_manager = VaultManager()
-    
-    if 'ollama_manager' not in st.session_state:
-        st.session_state.ollama_manager = OllamaManager()
-        # Démarrer Ollama en arrière-plan
-        if not st.session_state.ollama_manager.is_running:
-            with st.spinner("🚀 Démarrage d'Ollama..."):
-                st.session_state.ollama_manager.start_ollama()
-    
-    # Sidebar pour les stats
-    with st.sidebar:
-        st.header("📊 Statistiques")
-        stats = st.session_state.vault_manager.get_stats()
-        st.metric("Fichiers chiffrés", stats["total_files"])
-        st.metric("Taille totale", f"{stats['total_size']:,} bytes")
-        
-        st.markdown("---")
-        st.header("🔑 Phrase secrète")
-        st.info(f"Phrase actuelle: `{SECRET_PHRASE}`")
-        st.caption("Cette phrase est nécessaire pour déchiffrer les fichiers")
-    
-    # Tabs principales
-    tab1, tab2, tab3 = st.tabs(["🔒 Chiffrement", "🔓 Déchiffrement", "📁 Fichiers"])
-    
-    with tab1:
-        st.header("🔒 Chiffrer un fichier")
-        
-        # Input pour le chemin du fichier
-        file_path = st.text_input("📂 Chemin du fichier à chiffrer:", placeholder="/path/to/your/file.txt")
-        
-        if st.button("🔒 Chiffrer le fichier", type="primary"):
-            if not file_path:
-                st.error("❌ Veuillez saisir un chemin de fichier")
-            elif not os.path.exists(file_path):
-                st.error(f"❌ Fichier non trouvé: {file_path}")
-            else:
-                try:
-                    with st.spinner("🔄 Chiffrement en cours..."):
-                        # Chiffrer le fichier
-                        result = st.session_state.vault_manager.encrypt_file(file_path)
-                        
-                        # Générer l'explication avec Llama
-                        explanation = st.session_state.ollama_manager.generate_explanation(
-                            "Chiffrement",
-                            file_path,
-                            f"Le fichier a été chiffré avec succès et stocké dans le vault sécurisé avec l'UUID {result['uuid']}"
-                        )
-                        
-                        # Afficher les résultats
-                        st.success("✅ Fichier chiffré avec succès!")
-                        
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.info("📋 Informations du fichier")
-                            st.write(f"**Nom:** {result['filename']}")
-                            st.write(f"**UUID:** {result['uuid']}")
-                            st.write(f"**Chemin chiffré:** {result['encrypted_path']}")
-                        
-                        with col2:
-                            st.info("🤖 Explication IA")
-                            st.write(explanation)
-                        
-                        st.warning("⚠️ Gardez précieusement l'UUID pour pouvoir déchiffrer le fichier plus tard!")
-                        
-                except Exception as e:
-                    st.error(f"❌ Erreur lors du chiffrement: {e}")
-    
-    with tab2:
-        st.header("🔓 Déchiffrer un fichier")
-        
-        # Authentification
-        secret_input = st.text_input("🔑 Phrase secrète:", type="password", placeholder="Saisissez la phrase secrète")
-        
-        if secret_input == SECRET_PHRASE:
-            st.success("✅ Authentification réussie!")
-            
-            # Liste des fichiers disponibles
-            files = st.session_state.vault_manager.list_files()
-            
-            if files:
-                file_options = {f"{file['filename']} ({file['uuid'][:8]}...)": file['uuid'] for file in files}
-                selected_file = st.selectbox("📁 Sélectionnez un fichier à déchiffrer:", options=list(file_options.keys()))
-                
-                if st.button("🔓 Déchiffrer le fichier", type="primary"):
-                    try:
-                        with st.spinner("🔄 Déchiffrement en cours..."):
-                            selected_uuid = file_options[selected_file]
-                            result = st.session_state.vault_manager.decrypt_file(selected_uuid)
-                            
-                            # Générer l'explication avec Llama
-                            explanation = st.session_state.ollama_manager.generate_explanation(
-                                "Déchiffrement",
-                                result['filename'],
-                                f"Le fichier a été déchiffré avec succès et est maintenant disponible dans le dossier 'decrypted'"
-                            )
-                            
-                            # Afficher les résultats
-                            st.success("✅ Fichier déchiffré avec succès!")
-                            
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.info("📋 Informations du fichier")
-                                st.write(f"**Nom:** {result['filename']}")
-                                st.write(f"**UUID:** {result['uuid']}")
-                                st.write(f"**Chemin déchiffré:** {result['decrypted_path']}")
-                            
-                            with col2:
-                                st.info("🤖 Explication IA")
-                                st.write(explanation)
-                            
-                    except Exception as e:
-                        st.error(f"❌ Erreur lors du déchiffrement: {e}")
-            else:
-                st.info("📭 Aucun fichier chiffré dans le vault")
-        
-        elif secret_input:
-            st.error("❌ Phrase secrète incorrecte!")
-    
-    with tab3:
-        st.header("📁 Fichiers dans le vault")
-        
-        files = st.session_state.vault_manager.list_files()
-        
-        if files:
-            # Convertir en DataFrame pour affichage
-            df = pd.DataFrame(files)
-            df['created_at'] = pd.to_datetime(df['created_at']).dt.strftime('%Y-%m-%d %H:%M:%S')
-            df['file_size'] = df['file_size'].apply(lambda x: f"{x:,} bytes")
-            
-            st.dataframe(
-                df[['filename', 'uuid', 'created_at', 'file_size']],
-                use_container_width=True
+    def encrypt_file(self, file_path):
+        """Chiffre un fichier et génère une explication"""
+        try:
+            result = self.vault_manager.encrypt_file(file_path)
+            explanation = self.ollama_manager.generate_explanation(
+                "Chiffrement",
+                file_path,
+                f"Le fichier a été chiffré avec succès et stocké dans le vault sécurisé avec l'UUID {result['uuid']}"
             )
-        else:
-            st.info("📭 Aucun fichier dans le vault")
-
-# ================================
-# DÉMARRAGE
-# ================================
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "test":
-        # Mode test
-        print("🧪 Mode test...")
-        vm = VaultManager()
-        print(f"✅ Vault initialisé: {vm.get_stats()}")
+            result["explanation"] = explanation
+            return result
+        except Exception as e:
+            raise e
+    
+    def decrypt_file(self, file_uuid):
+        """Déchiffre un fichier et génère une explication"""
+        try:
+            result = self.vault_manager.decrypt_file(file_uuid)
+            explanation = self.ollama_manager.generate_explanation(
+                "Déchiffrement",
+                result['filename'],
+                "Le fichier a été déchiffré avec succès et est maintenant disponible dans le dossier 'decrypted'"
+            )
+            result["explanation"] = explanation
+            return result
+        except Exception as e:
+            raise e
+    
+    def authenticate(self, secret_input):
+        """Vérifie l'authentification"""
+        return secret_input == self.secret_phrase
+    
+    def list_files(self):
+        """Liste les fichiers dans le vault"""
+        return self.vault_manager.list_files()
+    
+    def get_stats(self):
+        """Statistiques du vault"""
+        return self.vault_manager.get_stats()
+    
+    def test(self):
+        """Test de l'agent"""
+        print("🧪 Mode test de l'agent...")
+        print(f"✅ Vault initialisé: {self.get_stats()}")
         
         # Créer un fichier de test
         test_file = BASE_DIR / "test_file.txt"
@@ -495,16 +368,26 @@ if __name__ == "__main__":
             f.write("Ceci est un fichier de test pour le chiffrement.")
         
         # Tester le chiffrement
-        result = vm.encrypt_file(str(test_file))
+        result = self.encrypt_file(str(test_file))
         print(f"✅ Fichier chiffré: {result['uuid']}")
         
         # Tester le déchiffrement
-        decrypted = vm.decrypt_file(result['uuid'])
+        decrypted = self.decrypt_file(result['uuid'])
         print(f"✅ Fichier déchiffré: {decrypted['decrypted_path']}")
         
         # Nettoyer
         os.remove(test_file)
         print("✅ Test terminé")
+
+# ================================
+# DÉMARRAGE DIRECT
+# ================================
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "test":
+        agent = SecurityAgent()
+        agent.start_ollama()
+        agent.test()
     else:
-        # Mode Streamlit
-        main()
+        print("🔐 Security Agent Core - Utilisez ce module dans votre interface")
+        print("Pour tester: python security_agent_core.py test")
