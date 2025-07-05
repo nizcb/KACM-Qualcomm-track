@@ -2,15 +2,17 @@
 """
 Interface Streamlit pour tester l'Agent Vision
 Analyse de documents visuels avec détection PII avancée
+Cross-Platform: Windows, Linux, Mac
 """
 
 import streamlit as st
 import asyncio
 import json
 import time
+import platform
 from pathlib import Path
 import pandas as pd
-from agent import analyze_document, VisionArgs, ONNX_AVAILABLE, PDF_AVAILABLE
+from agent import analyze_document, VisionArgs, ONNX_AVAILABLE, PDF_AVAILABLE, diagnose_system_dependencies
 
 # Configuration de la page
 st.set_page_config(
@@ -61,8 +63,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def display_system_status():
-    """Affiche le statut du système"""
+    """Affiche le statut du système cross-platform"""
     st.sidebar.header("📊 Statut du Système")
+    
+    # Informations OS
+    system_info = platform.system()
+    architecture = platform.machine()
+    st.sidebar.info(f"🖥️ {system_info} ({architecture})")
     
     # Statut des dépendances
     col1, col2 = st.sidebar.columns(2)
@@ -93,6 +100,31 @@ def display_system_status():
     
     for cap in capabilities:
         st.sidebar.write(cap)
+    
+    # Diagnostic système
+    st.sidebar.subheader("🔍 Diagnostic")
+    if st.sidebar.button("🛠️ Vérifier Dépendances", help="Diagnostic complet cross-platform"):
+        with st.sidebar:
+            with st.spinner("Diagnostic en cours..."):
+                # Capturer la sortie de la fonction de diagnostic
+                import io
+                import sys
+                from contextlib import redirect_stdout
+                
+                f = io.StringIO()
+                with redirect_stdout(f):
+                    system_ready = diagnose_system_dependencies()
+                
+                diagnostic_output = f.getvalue()
+                
+                # Afficher dans un expander
+                with st.expander("📋 Rapport Diagnostic", expanded=True):
+                    st.code(diagnostic_output, language="text")
+                    
+                    if system_ready:
+                        st.success("✅ Système prêt !")
+                    else:
+                        st.warning("⚠️ Dépendances manquantes")
 
 def format_pii_types(pii_types):
     """Formate les types PII pour l'affichage"""
@@ -291,9 +323,22 @@ def display_results(result):
 def main():
     """Interface principale"""
     
-    # En-tête
+    # En-tête avec support cross-platform
     st.markdown('<h1 class="main-header">🔍 Agent Vision - Analyseur de Documents</h1>', unsafe_allow_html=True)
     st.markdown("**Analyse intelligente de documents visuels avec détection PII avancée**")
+    
+    # Badge cross-platform
+    system_name = platform.system()
+    system_badges = {
+        "Windows": "🪟 Windows",
+        "Linux": "🐧 Linux", 
+        "Darwin": "🍎 macOS"
+    }
+    
+    st.markdown(f"<div style='text-align: center; margin: 1rem 0;'>"
+                f"<span style='background-color: #e1f5fe; padding: 0.25rem 0.75rem; border-radius: 1rem; font-size: 0.875rem;'>"
+                f"✅ Cross-Platform • {system_badges.get(system_name, system_name)} Compatible"
+                f"</span></div>", unsafe_allow_html=True)
     
     # Sidebar avec statut système
     display_system_status()

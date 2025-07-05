@@ -216,6 +216,172 @@ class NSFWDetector:
 # Instance globale du détecteur NSFW
 nsfw_detector = NSFWDetector()
 
+def diagnose_system_dependencies():
+    """
+    Diagnostic cross-platform des dépendances système
+    Vérifie les installations et guide l'utilisateur
+    """
+    import platform
+    import shutil
+    import sys
+    from pathlib import Path
+    
+    system = platform.system()
+    architecture = platform.machine()
+    python_version = sys.version
+    
+    print(f"\n🔍 DIAGNOSTIC SYSTÈME - VisionAgent Cross-Platform")
+    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print(f"🖥️  OS: {system} ({architecture})")
+    print(f"🐍 Python: {python_version}")
+    
+    # Détection environnement
+    if 'conda' in sys.executable.lower():
+        env_type = "Conda/Anaconda"
+        env_path = Path(sys.executable).parent.parent
+    elif hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+        env_type = "Virtual Environment"
+        env_path = Path(sys.prefix)
+    else:
+        env_type = "Système Global"
+        env_path = Path(sys.prefix)
+    
+    print(f"📦 Environnement: {env_type}")
+    print(f"📁 Chemin: {env_path}")
+    
+    # Vérification des dépendances Python
+    print(f"\n📚 DÉPENDANCES PYTHON:")
+    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    required_packages = {
+        'cv2': 'opencv-python',
+        'PIL': 'Pillow',
+        'easyocr': 'easyocr',
+        'pdf2image': 'pdf2image',
+        'numpy': 'numpy',
+        'requests': 'requests',
+        'pydantic': 'pydantic'
+    }
+    
+    missing_packages = []
+    
+    for module, package in required_packages.items():
+        try:
+            __import__(module)
+            print(f"✅ {package}")
+        except ImportError:
+            print(f"❌ {package} - MANQUANT")
+            missing_packages.append(package)
+    
+    # Vérification Poppler selon l'OS
+    print(f"\n🔧 DÉPENDANCES SYSTÈME:")
+    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    # Détection Poppler
+    poppler_found = False
+    poppler_paths = []
+    
+    if system == "Windows":
+        executable = "pdftoppm.exe"
+        
+        # Vérifier conda d'abord
+        if env_type.startswith("Conda"):
+            conda_poppler = env_path / "Library" / "bin" / executable
+            if conda_poppler.exists():
+                poppler_found = True
+                poppler_paths.append(str(conda_poppler.parent))
+        
+        # Autres emplacements Windows
+        potential_paths = [
+            "C:/poppler/bin",
+            "C:/Program Files/poppler/bin", 
+            "C:/Program Files (x86)/poppler/bin"
+        ]
+        
+        for path in potential_paths:
+            if Path(path).exists() and (Path(path) / executable).exists():
+                poppler_found = True
+                poppler_paths.append(path)
+    
+    elif system == "Linux":
+        executable = "pdftoppm"
+        
+        # Vérifier conda d'abord
+        if env_type.startswith("Conda"):
+            conda_poppler = env_path / "bin" / executable
+            if conda_poppler.exists():
+                poppler_found = True
+                poppler_paths.append(str(conda_poppler.parent))
+        
+        # Vérifier chemins système
+        system_paths = ["/usr/bin", "/usr/local/bin"]
+        for path in system_paths:
+            if Path(path).exists() and (Path(path) / executable).exists():
+                poppler_found = True
+                poppler_paths.append(path)
+    
+    elif system == "Darwin":  # macOS
+        executable = "pdftoppm"
+        
+        # Vérifier conda d'abord  
+        if env_type.startswith("Conda"):
+            conda_poppler = env_path / "bin" / executable
+            if conda_poppler.exists():
+                poppler_found = True
+                poppler_paths.append(str(conda_poppler.parent))
+        
+        # Homebrew
+        brew_paths = ["/opt/homebrew/bin", "/usr/local/bin"]
+        for path in brew_paths:
+            if Path(path).exists() and (Path(path) / executable).exists():
+                poppler_found = True
+                poppler_paths.append(path)
+    
+    # Vérifier PATH comme dernier recours
+    if not poppler_found and shutil.which(executable.replace('.exe', '')):
+        poppler_found = True
+        poppler_paths.append("PATH")
+    
+    if poppler_found:
+        print(f"✅ Poppler PDF Utils")
+        for path in poppler_paths:
+            print(f"   📍 {path}")
+    else:
+        print(f"❌ Poppler PDF Utils - MANQUANT")
+    
+    # Instructions d'installation
+    if missing_packages or not poppler_found:
+        print(f"\n🛠️  INSTRUCTIONS D'INSTALLATION:")
+        print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        
+        if missing_packages:
+            print(f"📦 Packages Python manquants:")
+            if env_type.startswith("Conda"):
+                print(f"   conda install {' '.join(missing_packages)}")
+            else:
+                print(f"   pip install {' '.join(missing_packages)}")
+        
+        if not poppler_found:
+            print(f"🔧 Poppler PDF Utils:")
+            if system == "Windows":
+                if env_type.startswith("Conda"):
+                    print(f"   conda install -c conda-forge poppler")
+                else:
+                    print(f"   Manuel: https://github.com/oschwartz10612/poppler-windows/releases/")
+                    print(f"   Extraire dans C:/poppler/ et ajouter C:/poppler/bin au PATH")
+            elif system == "Linux":
+                print(f"   Ubuntu/Debian: sudo apt-get install poppler-utils")
+                print(f"   RHEL/CentOS: sudo yum install poppler-utils")
+                print(f"   Conda: conda install -c conda-forge poppler")
+            elif system == "Darwin":
+                print(f"   Homebrew: brew install poppler")
+                print(f"   Conda: conda install -c conda-forge poppler")
+    else:
+        print(f"\n✅ SYSTÈME PRÊT - Toutes les dépendances sont installées !")
+    
+    print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    return poppler_found and len(missing_packages) == 0
+
 class VisionAgent:
     """Agent Vision pour analyse de documents visuels"""
     
@@ -316,6 +482,119 @@ class VisionAgent:
         """Vérifie si le fichier est un PDF"""
         return Path(path).suffix.lower() == '.pdf'
     
+    def _detect_poppler_path(self) -> Optional[str]:
+        """
+        Détecte automatiquement le chemin Poppler selon l'OS et l'élévénement
+        Compatible Windows/Linux/Mac, conda/pip/installation manuelle
+        
+        Returns:
+            Chemin vers Poppler ou None si non trouvé
+        """
+        import platform
+        import shutil
+        import sys
+        from pathlib import Path
+        
+        system = platform.system().lower()
+        logger.info(f"🔍 Détection Poppler pour {system}...")
+        
+        # Liste des chemins candidats selon l'OS
+        candidate_paths = []
+        executable_name = "pdftoppm"
+        
+        if system == "windows":
+            executable_name = "pdftoppm.exe"
+            
+            # 1. Environnement conda/miniconda (priorité haute)
+            if 'conda' in sys.executable.lower() or 'anaconda' in sys.executable.lower():
+                # Détecter le répertoire conda automatiquement
+                conda_base = Path(sys.executable).parent.parent  # De Scripts/python.exe vers racine
+                conda_poppler = conda_base / "Library" / "bin"
+                candidate_paths.append(str(conda_poppler))
+                logger.info(f"🐍 Environnement conda détecté: {conda_base}")
+            
+            # 2. Chemins conda standards (si pas dans un env conda)
+            potential_conda_paths = [
+                Path.home() / "anaconda3" / "Library" / "bin",
+                Path.home() / "miniconda3" / "Library" / "bin",
+                Path("C:/") / "anaconda3" / "Library" / "bin",
+                Path("C:/") / "miniconda3" / "Library" / "bin",
+                Path("C:/") / "ProgramData" / "Anaconda3" / "Library" / "bin",
+                Path("C:/") / "ProgramData" / "Miniconda3" / "Library" / "bin"
+            ]
+            candidate_paths.extend([str(p) for p in potential_conda_paths])
+            
+            # 3. Installation manuelle Poppler
+            manual_paths = [
+                "C:/poppler/bin",
+                "C:/Program Files/poppler/bin",
+                "C:/Program Files (x86)/poppler/bin"
+            ]
+            candidate_paths.extend(manual_paths)
+            
+        elif system == "linux":
+            # 1. Environnement conda
+            if 'conda' in sys.executable.lower():
+                conda_base = Path(sys.executable).parent.parent
+                conda_poppler = conda_base / "bin"
+                candidate_paths.append(str(conda_poppler))
+            
+            # 2. Installation système standard
+            system_paths = [
+                "/usr/bin",
+                "/usr/local/bin",
+                "/opt/conda/bin",
+                "/home/conda/bin"
+            ]
+            candidate_paths.extend(system_paths)
+            
+        elif system == "darwin":  # macOS
+            # 1. Environnement conda
+            if 'conda' in sys.executable.lower():
+                conda_base = Path(sys.executable).parent.parent
+                conda_poppler = conda_base / "bin"
+                candidate_paths.append(str(conda_poppler))
+            
+            # 2. Homebrew
+            brew_paths = [
+                "/opt/homebrew/bin",  # Apple Silicon
+                "/usr/local/bin",     # Intel Mac
+                "/usr/bin"
+            ]
+            candidate_paths.extend(brew_paths)
+        
+        # Test de chaque chemin candidat
+        for path in candidate_paths:
+            if not path:
+                continue
+                
+            executable_path = Path(path) / executable_name
+            
+            if executable_path.exists() and executable_path.is_file():
+                logger.info(f"✅ Poppler trouvé: {path}")
+                return path
+            else:
+                logger.debug(f"❌ Poppler non trouvé: {executable_path}")
+        
+        # Dernier recours: vérifier si pdftoppm est dans le PATH
+        if shutil.which(executable_name):
+            logger.info(f"✅ Poppler trouvé dans PATH: {executable_name}")
+            return None  # pdf2image utilisera le PATH
+        
+        logger.error("❌ Poppler non trouvé sur ce système")
+        logger.error("💡 Installez Poppler:")
+        if system == "windows":
+            logger.error("   - Conda: conda install -c conda-forge poppler")
+            logger.error("   - Manuel: https://github.com/oschwartz10612/poppler-windows/releases/")
+        elif system == "linux":
+            logger.error("   - Ubuntu/Debian: sudo apt-get install poppler-utils")
+            logger.error("   - Conda: conda install -c conda-forge poppler")
+        elif system == "darwin":
+            logger.error("   - Homebrew: brew install poppler")
+            logger.error("   - Conda: conda install -c conda-forge poppler")
+        
+        return None
+
     def _convert_pdf_to_images(self, pdf_path: str, extract_pages: Optional[List[int]] = None) -> List[np.ndarray]:
         """
         Convertit un PDF en liste d'images
@@ -345,23 +624,13 @@ class VisionAgent:
                 'poppler_path': None  # Sera configuré automatiquement
             }
             
-            # Configuration FORCÉE du chemin Poppler pour CONDA
-            import sys
-            import os
-            
-            # CHEMIN CONDA FORCÉ - C:\Users\chaki\anaconda3\Library\bin
-            conda_poppler_path = r"C:\Users\chaki\anaconda3\Library\bin"
-            
-            # Vérifier que le chemin conda existe et contient pdftoppm.exe
-            pdftoppm_exe = os.path.join(conda_poppler_path, 'pdftoppm.exe')
-            
-            if os.path.exists(pdftoppm_exe):
-                conversion_params['poppler_path'] = conda_poppler_path
-                logger.info(f"🔧 Poppler CONDA utilisé: {conda_poppler_path}")
+            # Détection automatique cross-platform de Poppler
+            poppler_path = self._detect_poppler_path()
+            if poppler_path:
+                conversion_params['poppler_path'] = poppler_path
+                logger.info(f"🔧 Poppler utilisé: {poppler_path}")
             else:
-                logger.error(f"❌ Poppler CONDA non trouvé: {pdftoppm_exe}")
-                # Pas de fallback - on force conda uniquement
-                raise Exception(f"Poppler non trouvé dans conda: {conda_poppler_path}")
+                logger.info("🔧 Poppler utilisé depuis PATH (ou non trouvé)")
             
             # Extraire pages spécifiques ou toutes
             if extract_pages:
