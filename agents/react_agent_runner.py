@@ -52,6 +52,8 @@ When you call the tool `summarize_audio`, you must:
   1) Use it exactly once.
   2) After seeing the tool's result, immediately provide your Final Answer in JSON format.
   3) Do NOT call the tool again.
+IMPORTANT: When you use Action Input, NEVER use quotes or extra formatting. Only use the raw file path, or file path and language code separated by a comma, with NO quotes.
+If you were not given a language code, do NOT add one.
 Your Final Answer must start with "Final Answer:" and contain a JSON object.
 """
 
@@ -73,6 +75,7 @@ def summarize_audio(input_string: str) -> str:
         str: Formatted string containing summary, protection status, reason, and filepath
     """
     # Parse input string to extract file path and optional language code
+    input_string = input_string.strip().strip("'").strip('"')
     parts = input_string.strip().split(',')
     file_path = parts[0].strip()
     forced_lang = parts[1].strip() if len(parts) > 1 else None
@@ -130,6 +133,8 @@ IMPORTANT:
 - Call audio_summary exactly ONCE
 - After getting the Observation, immediately provide Final Answer
 - Do NOT call the tool multiple times
+- Action Input must be the raw file path (e.g., test.mp3) or file path and language code (e.g., test.mp3,en) with NO quotes, NO brackets, and NO extra formatting.
+- Only include a language code if it was provided in the question.
 
 Question: {input}
 {agent_scratchpad}""")
@@ -153,7 +158,6 @@ agent_executor = AgentExecutor(
     tools=tools,                    # Tools available to the agent
     verbose=True,                   # Enable detailed logging of agent steps
     handle_parsing_errors=True,      # Automatically handle malformed LLM responses
-    max_iterations=3  # Prevent infinite loops
 )
 
 # Main execution block - handles command-line usage
@@ -162,27 +166,28 @@ if __name__ == "__main__":
     
     # Check for required command-line arguments
     if len(sys.argv) < 2:
-        print("Usage: python react_agent_runner.py <audio_file_path> [forced_lang]\n forced_lang is optional.")
+        print("Usage: python react_agent_runner.py <audio_file1> [audio_file2 ...] [forced_lang]\nforced_lang is optional and applies to all files.")
         sys.exit(1)
 
-    # Parse command-line arguments
-    file_path = sys.argv[1]                                    # Required: audio file path
-    forced_lang = sys.argv[2] if len(sys.argv) > 2 else None  # Optional: language code
 
-    # Construct the query based on whether language is specified
-    if forced_lang:
-        # Include language specification in the query
-        query = f"Use the audio_summary tool to analyze {file_path} with forced language {forced_lang}. The Action Input should be exactly: {file_path},{forced_lang}"
-    else:
-        # Use auto-detection for language
-        query = f"Use the audio_summary tool to analyze {file_path}. The Action Input should be exactly: {file_path}"
+    # Detect if the last argument is a language code (e.g., 'en', 'es', 'fr')
+    possible_lang = sys.argv[-1]
+    audio_files = sys.argv[1:-1] if len(sys.argv) > 2 and len(possible_lang) <= 5 else sys.argv[1:]
+    forced_lang = possible_lang if len(sys.argv) > 2 and len(possible_lang) <= 5 else None
 
-    # Execute the agent and display results
-    print("\n🤖 Agent response:")
-    try:
-        # Run the agent with the constructed query
-        result = agent_executor.invoke({"input": query})
-        print(result["output"])
-    except Exception as e:
-        # Handle any execution errors
-        print(f"Error: {e}")
+    if not audio_files:
+        print("No audio files specified.")
+        sys.exit(1)
+
+    for file_path in audio_files:
+        if forced_lang:
+            query = f"Use the audio_summary tool to analyze {file_path} with forced language {forced_lang}. The Action Input should be exactly: {file_path},{forced_lang}"
+        else:
+            query = f"Use the audio_summary tool to analyze {file_path}. The Action Input should be exactly: {file_path}"
+
+        print(f"\n🤖 Agent response for {file_path}:")
+        try:
+            result = agent_executor.invoke({"input": query})
+            print(result["output"])
+        except Exception as e:
+            print(f"Error processing {file_path}: {e}")
