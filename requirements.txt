@@ -9,6 +9,10 @@ langchain-core>=0.1.0
 # Agents et outils
 langchain-experimental>=0.0.45
 
+# Support PDF
+PyPDF2>=3.0.0
+pymupdf>=1.22.0
+
 # Utilitaires
 requests>=2.31.0
 typing-extensions>=4.5.0

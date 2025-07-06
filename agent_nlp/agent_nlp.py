@@ -30,6 +30,23 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 from langchain_community.llms import Ollama
 from langchain.tools import tool
 
+# Support PDF
+try:
+    import PyPDF2
+    PDF_AVAILABLE = True
+    print("✅ Support PDF disponible (PyPDF2)")
+except ImportError:
+    PDF_AVAILABLE = False
+    print("⚠️ Support PDF non disponible (pip install PyPDF2)")
+
+try:
+    import fitz  # PyMuPDF
+    PYMUPDF_AVAILABLE = True
+    print("✅ Support PDF avancé disponible (PyMuPDF)")
+except ImportError:
+    PYMUPDF_AVAILABLE = False
+    print("⚠️ Support PDF avancé non disponible (pip install pymupdf)")
+
 # ──────────────────────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────────────────────
@@ -55,13 +72,55 @@ PII_REGEXES: Dict[str, re.Pattern] = {
 }
 
 # ──────────────────────────────────────────────────────────────────────────
+# Fonctions utilitaires pour le traitement de fichiers
+# ──────────────────────────────────────────────────────────────────────────
+
+def extract_pdf_content(file_path: str) -> str:
+    """
+    Extrait le contenu texte d'un fichier PDF.
+    
+    Args:
+        file_path: Chemin vers le fichier PDF
+        
+    Returns:
+        Contenu texte du PDF
+    """
+    content = ""
+    
+    # Essai avec PyMuPDF d'abord (plus performant)
+    if PYMUPDF_AVAILABLE:
+        try:
+            doc = fitz.open(file_path)
+            for page_num in range(doc.page_count):
+                page = doc[page_num]
+                content += page.get_text() + "\n"
+            doc.close()
+            return content
+        except Exception as e:
+            print(f"⚠️ Erreur PyMuPDF: {e}")
+    
+    # Fallback avec PyPDF2
+    if PDF_AVAILABLE:
+        try:
+            with open(file_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file)
+                for page_num in range(len(pdf_reader.pages)):
+                    page = pdf_reader.pages[page_num]
+                    content += page.extract_text() + "\n"
+            return content
+        except Exception as e:
+            return f"Erreur lors de l'extraction PDF: {str(e)}"
+    
+    return "Aucune bibliothèque PDF disponible"
+
+# ──────────────────────────────────────────────────────────────────────────
 # Outils pour l'Agent IA
 # ──────────────────────────────────────────────────────────────────────────
 
 @tool
 def read_file_tool(file_path: str) -> str:
     """
-    Lit le contenu d'un fichier texte.
+    Lit le contenu d'un fichier texte ou PDF.
     
     Args:
         file_path: Chemin vers le fichier à lire
@@ -75,41 +134,68 @@ def read_file_tool(file_path: str) -> str:
             full_path = os.path.join(current_dir, file_path)
         else:
             full_path = file_path
-            
-        with open(full_path, 'r', encoding='utf-8') as file:
-            content = file.read()
-        return f"Contenu du fichier '{file_path}':\n{content}"
+        
+        # Vérifier l'extension du fichier
+        _, ext = os.path.splitext(full_path.lower())
+        
+        if ext == '.pdf':
+            # Traitement PDF
+            if PDF_AVAILABLE or PYMUPDF_AVAILABLE:
+                content = extract_pdf_content(full_path)
+                return f"Contenu du fichier PDF '{file_path}':\n{content}"
+            else:
+                return f"Erreur: Aucune bibliothèque PDF disponible pour lire '{file_path}'"
+        else:
+            # Traitement fichiers texte
+            with open(full_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+            return f"Contenu du fichier '{file_path}':\n{content}"
     except Exception as e:
         return f"Erreur lors de la lecture du fichier '{file_path}': {str(e)}"
 
 @tool
-def summarize_text_tool(text: str) -> str:
+def generate_smart_summary_tool(text: str) -> str:
     """
-    Résume un texte en conservant les informations essentielles.
+    Génère un résumé intelligent avec LLM si disponible, sinon utilise un fallback.
     
     Args:
         text: Texte à résumer
         
     Returns:
-        Résumé du texte en 3 phrases maximum
+        Résumé intelligent du texte en 3 phrases maximum
     """
     try:
-        # Résumé simple basé sur les premières phrases
-        sentences = text.replace('\n', ' ').split('.')
-        summary_sentences = []
-        for sentence in sentences:
-            if sentence.strip() and len(summary_sentences) < 3:
-                summary_sentences.append(sentence.strip())
-        
-        result = '. '.join(summary_sentences) + '.' if summary_sentences else "Résumé non disponible."
-        return f"Résumé généré: {result}"
+        # Utilisation du LLM si disponible
+        try:
+            prompt = f"""Résume le texte suivant en 3 phrases maximum en français, en gardant les informations essentielles :
+
+Texte : {text}
+
+Résumé :
+Ne commence jamais le résumé par une introduction de type "Voici le résumé" ou similaire.
+"""
+            response = llm.invoke(prompt)
+            return f"Résumé intelligent généré: {response.strip()}"
+        except Exception as llm_error:
+            print(f"⚠️ Erreur LLM, passage en mode fallback : {llm_error}")
+            
+            # Fallback : résumé simple
+            sentences = text.replace('\n', ' ').split('.')
+            summary_sentences = []
+            for sentence in sentences:
+                if sentence.strip() and len(summary_sentences) < 3:
+                    summary_sentences.append(sentence.strip())
+            
+            result = '. '.join(summary_sentences) + '.' if summary_sentences else "Résumé non disponible."
+            return f"Résumé généré (fallback): {result}"
+            
     except Exception as e:
         return f"Erreur lors du résumé: {str(e)}"
 
 @tool
 def detect_pii_tool(text: str) -> str:
     """
-    Détecte les informations personnelles identifiables (PII) dans un texte.
+    Détecte les informations personnelles identifiables (PII) dans un texte avec IA.
     
     Args:
         text: Texte à analyser
@@ -118,24 +204,66 @@ def detect_pii_tool(text: str) -> str:
         Information sur la présence de PII trouvées
     """
     try:
-        pii_found = []
-        
-        pii_patterns = {
-            "EMAIL": re.compile(r"[\w\.\-]+@[\w\.-]+\.[a-z]{2,}", re.I),
-            "PHONE": re.compile(r"\+?\d{1,3}[\s\-]?\d[\d\s\-]{8,}\d", re.I),
-            "CARD": re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
-            "IBAN": re.compile(r"\b[A-Z]{2}\d{2}[\s]?[A-Z0-9]{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{2}\b"),
-            "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
-        }
-        
-        for label, pattern in pii_patterns.items():
-            if pattern.search(text):
-                pii_found.append(label)
-        
-        if pii_found:
-            return f"⚠️ PII détectées: {', '.join(pii_found)}. ATTENTION: Ce fichier contient des informations sensibles!"
-        else:
-            return "✅ Aucune PII détectée. Le fichier semble sûr."
+        # Utilisation du LLM si disponible pour une détection intelligente
+        try:
+            prompt = f"""Tu es un expert en sécurité des données. Analyse le texte suivant et détecte UNIQUEMENT les informations personnelles identifiables (PII) réelles présentes.
+
+Types de PII à rechercher avec attention au contexte:
+- Adresses email réelles (pas d'exemples fictifs)
+- Numéros de téléphone réels
+- Numéros de carte bancaire/crédit réels (pas 4242 4242 4242 4242)
+- Codes IBAN/RIB réels
+- Numéros de sécurité sociale réels
+- Adresses postales complètes réelles
+- Dates de naissance spécifiques
+- Numéros d'identité/passeport réels
+- Noms et prénoms complets de personnes réelles
+
+IMPORTANT: Ignore les exemples fictifs, les données de test, les placeholders, et les données manifestement fausses.
+
+Texte à analyser :
+{text}
+
+Réponds UNIQUEMENT par:
+- "AUCUNE_PII" si aucune information personnelle réelle n'est détectée
+- "PII_DETECTEES" si des PII réelles sont présentes
+
+Réponse:"""
+            
+            response = llm.invoke(prompt)
+            response = response.strip()
+            
+            if "AUCUNE_PII" in response.upper():
+                return "✅ Aucune PII détectée par l'IA. Le fichier semble sûr."
+            elif "PII_DETECTEES" in response.upper():
+                pii_types = response.split(":")[1].strip() if ":" in response else response
+                return f"⚠️ PII détectées par l'IA: {pii_types}. ATTENTION: Ce fichier contient des informations sensibles!"
+            else:
+                # Fallback si la réponse n'est pas dans le format attendu
+                return f"🔍 Analyse IA: {response}"
+                
+        except Exception as llm_error:
+            print(f"⚠️ Erreur LLM pour PII, passage en mode regex : {llm_error}")
+            
+            # Fallback : détection par regex
+            pii_found = []
+            
+            pii_patterns = {
+                "EMAIL": re.compile(r"[\w\.\-]+@[\w\.-]+\.[a-z]{2,}", re.I),
+                "PHONE": re.compile(r"\+?\d{1,3}[\s\-]?\d[\d\s\-]{8,}\d", re.I),
+                "CARD": re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
+                "IBAN": re.compile(r"\b[A-Z]{2}\d{2}[\s]?[A-Z0-9]{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{2}\b"),
+                "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
+            }
+            
+            for label, pattern in pii_patterns.items():
+                if pattern.search(text):
+                    pii_found.append(label)
+            
+            if pii_found:
+                return f"⚠️ PII détectées (regex): {', '.join(pii_found)}. ATTENTION: Ce fichier contient des informations sensibles!"
+            else:
+                return "✅ Aucune PII détectée (regex). Le fichier semble sûr."
             
     except Exception as e:
         return f"Erreur lors de la détection PII: {str(e)}"
@@ -187,6 +315,43 @@ def list_files_tool(directory: str = ".") -> str:
     except Exception as e:
         return f"Erreur lors de la liste des fichiers: {str(e)}"
 
+@tool
+def process_multiple_files_tool(file_paths: str) -> str:
+    """
+    Traite plusieurs fichiers en une seule fois.
+    
+    Args:
+        file_paths: Liste des chemins des fichiers séparés par des virgules
+        
+    Returns:
+        Résumé du traitement de tous les fichiers
+    """
+    try:
+        paths = [path.strip() for path in file_paths.split(',')]
+        results = []
+        
+        for file_path in paths:
+            if os.path.exists(file_path):
+                try:
+                    # Utiliser read_file_tool pour lire le contenu
+                    content = read_file_tool(file_path)
+                    
+                    # Générer le résumé
+                    summary = generate_smart_summary_tool(content)
+                    
+                    # Détecter les PII
+                    pii_check = detect_pii_tool(content)
+                    
+                    results.append(f"📄 {file_path}: {summary[:100]}... | {pii_check}")
+                except Exception as e:
+                    results.append(f"❌ {file_path}: Erreur - {str(e)}")
+            else:
+                results.append(f"⚠️ {file_path}: Fichier non trouvé")
+        
+        return f"Traitement de {len(paths)} fichiers:\n" + "\n".join(results)
+    except Exception as e:
+        return f"Erreur lors du traitement multiple: {str(e)}"
+
 # ──────────────────────────────────────────────────────────────────────────
 # Agent IA Principal
 # ──────────────────────────────────────────────────────────────────────────
@@ -201,10 +366,11 @@ class AgentIA:
         # Outils disponibles pour l'agent
         self.tools = [
             read_file_tool,
-            summarize_text_tool,
+            generate_smart_summary_tool,
             detect_pii_tool,
             save_json_tool,
-            list_files_tool
+            list_files_tool,
+            process_multiple_files_tool
         ]
         
         # Initialisation de l'agent simplifié
@@ -221,11 +387,12 @@ class AgentIA:
         prompt = f"""Tu es un agent IA spécialisé en analyse NLP et détection PII.
 
 Tu as accès aux outils suivants:
-1. read_file_tool(file_path) - Lit un fichier
-2. summarize_text_tool(text) - Résume un texte
+1. read_file_tool(file_path) - Lit un fichier (texte ou PDF)
+2. generate_smart_summary_tool(text) - Génère un résumé intelligent
 3. detect_pii_tool(text) - Détecte les PII
 4. save_json_tool(data, filename) - Sauvegarde en JSON
 5. list_files_tool(directory) - Liste les fichiers
+6. process_multiple_files_tool(file_paths) - Traite plusieurs fichiers (séparés par des virgules)
 
 Utilise le format de raisonnement suivant:
 Thought: [Ce que je dois faire]
@@ -306,7 +473,7 @@ Texte : {content}
 Résumé :
 Ne commence jamais le résumé par une introduction de type "Voici le résumé" ou similaire.
 """
-                response = self.llm.invoke(prompt)
+                response = llm.invoke(prompt)
                 return response.strip()
             except Exception as e:
                 print(f"⚠️ Erreur LLM, passage en mode offline : {e}")
@@ -319,39 +486,99 @@ Ne commence jamais le résumé par une introduction de type "Voici le résumé" 
                 summary_sentences.append(sentence.strip())
         
         return '. '.join(summary_sentences) + '.' if summary_sentences else "Résumé non disponible."
+
+    def _detect_pii_intelligent(self, content: str) -> bool:
+        """Détecte les PII avec IA si disponible, sinon utilise regex"""
+        if not self.offline_mode and self.llm:
+            try:
+                prompt = f"""Tu es un expert en sécurité des données. Analyse le texte suivant et détecte UNIQUEMENT les informations personnelles identifiables (PII) réelles présentes.
+
+Types de PII à rechercher avec attention au contexte:
+- Adresses email réelles (pas d'exemples fictifs)
+- Numéros de téléphone réels
+- Numéros de carte bancaire/crédit réels (pas 4242 4242 4242 4242)
+- Codes IBAN/RIB réels
+- Numéros de sécurité sociale réels
+- Adresses postales complètes réelles
+- Dates de naissance spécifiques
+- Numéros d'identité/passeport réels
+- Noms et prénoms complets de personnes réelles
+
+IMPORTANT: Ignore les exemples fictifs, les données de test, les placeholders, et les données manifestement fausses.
+
+Texte à analyser :
+{content}
+
+Réponds UNIQUEMENT par:
+- "AUCUNE_PII" si aucune information personnelle réelle n'est détectée
+- "PII_DETECTEES" si des PII réelles sont présentes
+
+Réponse:"""
+                
+                response = self.llm.invoke(prompt)
+                response = response.strip().upper()
+                
+                if "PII_DETECTEES" in response:
+                    print("🔍 PII détectées par l'IA")
+                    return True
+                else:
+                    print("✅ Aucune PII détectée par l'IA")
+                    return False
+                    
+            except Exception as e:
+                print(f"⚠️ Erreur LLM pour PII, passage en mode regex : {e}")
+        
+        # Fallback : détection par regex
+        pii_patterns = {
+            "EMAIL": re.compile(r"[\w\.\-]+@[\w\.-]+\.[a-z]{2,}", re.I),
+            "PHONE": re.compile(r"\+?\d{1,3}[\s\-]?\d[\d\s\-]{8,}\d", re.I),
+            "CARD": re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
+            "IBAN": re.compile(r"\b[A-Z]{2}\d{2}[\s]?[A-Z0-9]{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{2}\b"),
+            "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
+        }
+        
+        for label, pattern in pii_patterns.items():
+            if pattern.search(content):
+                print(f"🔍 PII détectées par regex: {label}")
+                return True
+        
+        print("✅ Aucune PII détectée par regex")
+        return False
     def _execute_analysis(self, file_path: str) -> Dict[str, Any]:
         """Exécute l'analyse avec les outils disponibles"""
         try:
-            # Lecture du fichier directement (sans passer par l'outil)
+            # Lecture du fichier directement
             print("🔧 Lecture du fichier...")
             if not os.path.isabs(file_path):
                 current_dir = os.getcwd()
                 full_path = os.path.join(current_dir, file_path)
             else:
                 full_path = file_path
-                
-            with open(full_path, 'r', encoding='utf-8') as file:
-                content = file.read()
+            
+            # Vérifier l'extension du fichier
+            _, ext = os.path.splitext(full_path.lower())
+            
+            if ext == '.pdf':
+                # Traitement PDF
+                if PDF_AVAILABLE or PYMUPDF_AVAILABLE:
+                    content = extract_pdf_content(full_path)
+                    print(f"📄 Contenu PDF extrait ({len(content)} caractères)")
+                else:
+                    content = "Erreur: Aucune bibliothèque PDF disponible"
+                    print("⚠️ Aucune bibliothèque PDF disponible")
+            else:
+                # Traitement fichiers texte
+                with open(full_path, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                print(f"📄 Contenu texte lu ({len(content)} caractères)")
             
             # Génération du résumé intelligent
             print("🔧 Génération du résumé...")
             resume = self._generate_smart_summary(content)
             
-            # Détection PII
-            print("🔧 Détection des PII...")
-            pii_found = False
-            pii_patterns = {
-                "EMAIL": re.compile(r"[\w\.\-]+@[\w\.-]+\.[a-z]{2,}", re.I),
-                "PHONE": re.compile(r"\+?\d{1,3}[\s\-]?\d[\d\s\-]{8,}\d", re.I),
-                "CARD": re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
-                "IBAN": re.compile(r"\b[A-Z]{2}\d{2}[\s]?[A-Z0-9]{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{2}\b"),
-                "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
-            }
-            
-            for label, pattern in pii_patterns.items():
-                if pattern.search(content):
-                    pii_found = True
-                    break
+            # Détection PII intelligente
+            print("🔧 Détection intelligente des PII...")
+            pii_found = self._detect_pii_intelligent(content)
             
             # Construction du résultat final
             result = {
@@ -385,29 +612,31 @@ Ne commence jamais le résumé par une introduction de type "Voici le résumé" 
                 full_path = os.path.join(current_dir, file_path)
             else:
                 full_path = file_path
-                
-            with open(full_path, 'r', encoding='utf-8') as file:
-                content = file.read()
+            
+            # Vérifier l'extension du fichier
+            _, ext = os.path.splitext(full_path.lower())
+            
+            if ext == '.pdf':
+                # Traitement PDF
+                if PDF_AVAILABLE or PYMUPDF_AVAILABLE:
+                    content = extract_pdf_content(full_path)
+                    print(f"📄 Contenu PDF extrait ({len(content)} caractères)")
+                else:
+                    content = "Erreur: Aucune bibliothèque PDF disponible"
+                    print("⚠️ Aucune bibliothèque PDF disponible")
+            else:
+                # Traitement fichiers texte
+                with open(full_path, 'r', encoding='utf-8') as file:
+                    content = file.read()
+                print(f"📄 Contenu texte lu ({len(content)} caractères)")
             
             # Génération du résumé intelligent
             print("✍️ Génération du résumé...")
             resume = self._generate_smart_summary(content)
             
-            # Détection PII
-            print("🔍 Détection des PII...")
-            pii_found = False
-            pii_patterns = {
-                "EMAIL": re.compile(r"[\w\.\-]+@[\w\.-]+\.[a-z]{2,}", re.I),
-                "PHONE": re.compile(r"\+?\d{1,3}[\s\-]?\d[\d\s\-]{8,}\d", re.I),
-                "CARD": re.compile(r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b"),
-                "IBAN": re.compile(r"\b[A-Z]{2}\d{2}[\s]?[A-Z0-9]{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{4}[\s]?\d{2}\b"),
-                "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
-            }
-            
-            for label, pattern in pii_patterns.items():
-                if pattern.search(content):
-                    pii_found = True
-                    break
+            # Détection PII intelligente
+            print("🔍 Détection intelligente des PII...")
+            pii_found = self._detect_pii_intelligent(content)
             
             # Construction du résultat final
             result = {
@@ -434,6 +663,66 @@ Ne commence jamais le résumé par une introduction de type "Voici le résumé" 
                 return f"Erreur lors du chat: {e}"
         else:
             return "Mode offline activé. Utilisez les commandes directes pour traiter les fichiers."
+    
+    def process_multiple_files_with_reasoning(self, file_paths: List[str]) -> Dict[str, Any]:
+        """Traite plusieurs fichiers en utilisant le raisonnement de l'agent IA"""
+        results = {}
+        summary_results = []
+        total_warnings = 0
+        
+        print(f"🔄 Traitement de {len(file_paths)} fichiers...")
+        
+        for i, file_path in enumerate(file_paths, 1):
+            print(f"\n📄 Traitement du fichier {i}/{len(file_paths)}: {file_path}")
+            
+            try:
+                # Traiter chaque fichier individuellement
+                result = self.process_file_with_reasoning(file_path)
+                
+                # Ajouter au résultat global
+                file_key = os.path.basename(file_path)
+                results[file_key] = result
+                
+                # Préparer le résumé
+                summary_results.append({
+                    "file": file_key,
+                    "path": result["file_path"],
+                    "has_pii": result["warning"],
+                    "summary_preview": result["resume"][:100] + "..." if len(result["resume"]) > 100 else result["resume"]
+                })
+                
+                if result["warning"]:
+                    total_warnings += 1
+                    
+            except Exception as e:
+                print(f"❌ Erreur lors du traitement de {file_path}: {e}")
+                results[os.path.basename(file_path)] = {
+                    "file_path": file_path,
+                    "resume": f"Erreur lors du traitement: {str(e)}",
+                    "warning": False
+                }
+        
+        # Créer un résumé global
+        batch_summary = {
+            "batch_info": {
+                "total_files": len(file_paths),
+                "processed_files": len(results),
+                "files_with_pii": total_warnings,
+                "processing_date": "2025-07-06"
+            },
+            "files": summary_results,
+            "detailed_results": results
+        }
+        
+        # Sauvegarder le résultat global
+        batch_output_file = f"batch_analysis_{len(file_paths)}_files.json"
+        print(f"\n💾 Sauvegarde du résultat global dans {batch_output_file}...")
+        
+        with open(batch_output_file, 'w', encoding='utf-8') as f:
+            json.dump(batch_summary, f, indent=2, ensure_ascii=False)
+        
+        print(f"✅ Traitement terminé: {len(results)} fichiers traités, {total_warnings} avec PII")
+        return batch_summary
 
 # ──────────────────────────────────────────────────────────────────────────
 # Fonctions utilitaires
@@ -442,6 +731,54 @@ def process_file(file_path: str, offline_mode: bool = False) -> Dict[str, Any]:
     """Traite un fichier et retourne le résultat JSON"""
     agent = AgentIA(llm if not offline_mode else None, offline_mode)
     return agent.process_file_with_reasoning(file_path)
+
+def process_multiple_files(file_paths: List[str], offline_mode: bool = False) -> Dict[str, Any]:
+    """Traite plusieurs fichiers et retourne le résultat JSON global"""
+    agent = AgentIA(llm if not offline_mode else None, offline_mode)
+    return agent.process_multiple_files_with_reasoning(file_paths)
+
+def process_directory(directory_path: str, file_extensions: List[str] = None, offline_mode: bool = False) -> Dict[str, Any]:
+    """Traite tous les fichiers d'un répertoire avec extensions spécifiées"""
+    if file_extensions is None:
+        file_extensions = ['.txt', '.py', '.md', '.json', '.csv', '.xml', '.html', '.log', '.pdf']
+    
+    file_paths = []
+    
+    # Parcourir le répertoire
+    for root, dirs, files in os.walk(directory_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            _, ext = os.path.splitext(file.lower())
+            
+            if ext in file_extensions:
+                file_paths.append(file_path)
+    
+    if not file_paths:
+        print(f"⚠️ Aucun fichier trouvé dans {directory_path} avec les extensions {file_extensions}")
+        return {"error": "Aucun fichier trouvé"}
+    
+    print(f"📁 Traitement du répertoire {directory_path}: {len(file_paths)} fichiers trouvés")
+    return process_multiple_files(file_paths, offline_mode)
+
+def process_file_patterns(patterns: List[str], offline_mode: bool = False) -> Dict[str, Any]:
+    """Traite des fichiers selon des patterns (glob patterns)"""
+    import glob
+    
+    file_paths = []
+    
+    for pattern in patterns:
+        matched_files = glob.glob(pattern)
+        file_paths.extend(matched_files)
+    
+    # Supprimer les doublons
+    file_paths = list(set(file_paths))
+    
+    if not file_paths:
+        print(f"⚠️ Aucun fichier trouvé avec les patterns {patterns}")
+        return {"error": "Aucun fichier trouvé"}
+    
+    print(f"🔍 Traitement par patterns: {len(file_paths)} fichiers trouvés")
+    return process_multiple_files(file_paths, offline_mode)
 
 def process_file_to_json_string(file_path: str, offline_mode: bool = False) -> str:
     """Traite un fichier et retourne le JSON sous forme de string"""
@@ -480,11 +817,13 @@ def chat_mode():
             if user_input.lower() == 'help':
                 print("""
 🤖 Commandes disponibles:
-- Analysez un fichier: "Analyse le fichier recit.txt"
+- Analysez un fichier: "Analyse le fichier recit.txt" ou "Analyse le fichier document.pdf"
 - Listez les fichiers: "Quels fichiers sont disponibles?"
 - Posez des questions: "Résume-moi ce document"
 - Détection PII: "Y a-t-il des informations sensibles?"
 - quit/exit: Quitter le chat
+
+📄 Formats supportés: .txt, .py, .md, .json, .csv, .xml, .html, .log, .pdf
                 """)
                 continue
             
@@ -569,6 +908,68 @@ def test_agent():
     finally:
         if os.path.exists("test_pii.txt"):
             os.remove("test_pii.txt")
+    
+    print("\n" + "="*60 + "\n")
+    
+    # Test 3: Traitement en lot
+    print("3. Test traitement en lot")
+    print("-" * 40)
+    test_batch_processing()
+
+def test_batch_processing():
+    """Test du traitement en lot avec plusieurs fichiers"""
+    print("=== Test Traitement en Lot ===\n")
+    
+    # Créer des fichiers de test
+    test_files = {
+        "test_batch_1.txt": "Ceci est un document de test simple sans informations sensibles.",
+        "test_batch_2.txt": """
+        Rapport client confidentiel
+        Nom: Jean Dupont
+        Email: jean.dupont@test.com
+        Téléphone: +33 6 12 34 56 78
+        """,
+        "test_batch_3.txt": "Un autre document de test avec du contenu normal pour l'analyse."
+    }
+    
+    # Créer les fichiers
+    for filename, content in test_files.items():
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(content)
+    
+    try:
+        print("1. Test du traitement en lot de 3 fichiers")
+        print("-" * 50)
+        
+        file_paths = list(test_files.keys())
+        agent = AgentIA(llm, offline_mode=False)
+        
+        if agent.agent:
+            print("🤖 Test avec Agent IA...")
+            result = agent.process_multiple_files_with_reasoning(file_paths)
+        else:
+            print("⚠️ Agent IA non disponible, test en mode offline...")
+            result = process_multiple_files(file_paths, offline_mode=True)
+        
+        print(f"Fichiers traités: {result['batch_info']['total_files']}")
+        print(f"Fichiers avec PII: {result['batch_info']['files_with_pii']}")
+        
+        # Afficher un résumé
+        for file_info in result['files']:
+            pii_status = "⚠️ PII" if file_info['has_pii'] else "✅ Safe"
+            print(f"  {file_info['file']}: {pii_status}")
+            
+    except Exception as e:
+        print(f"Erreur lors du test: {e}")
+    finally:
+        # Nettoyer les fichiers de test
+        for filename in test_files.keys():
+            if os.path.exists(filename):
+                os.remove(filename)
+        
+        # Nettoyer le fichier de résultat
+        if os.path.exists("batch_analysis_3_files.json"):
+            os.remove("batch_analysis_3_files.json")
 
 # ──────────────────────────────────────────────────────────────────────────
 # Interface en ligne de commande
@@ -579,28 +980,37 @@ def main():
         print("Agent IA NLP - Analyse Intelligente et Détection PII")
         print("=========================================================")
         print("🤖 Agent IA autonome avec capacité de raisonnement")
+        print("📄 Support PDF intégré (PyPDF2 + PyMuPDF)")
+        print("🔄 Traitement en lot de multiples fichiers")
         print("\nUsage:")
         print("  python agent_nlp.py <fichier>                    # Analyse avec agent IA")
         print("  python agent_nlp.py <fichier> <sortie.json>      # Sauvegarde personnalisée")
         print("  python agent_nlp.py <fichier> --offline          # Mode offline (sans agent IA)")
+        print("  python agent_nlp.py --batch <fichier1,fichier2>  # Traitement en lot")
+        print("  python agent_nlp.py --directory <dossier>        # Traitement d'un dossier")
+        print("  python agent_nlp.py --pattern <pattern>          # Traitement par pattern")
         print("  python agent_nlp.py --test                       # Tests")
         print("  python agent_nlp.py --chat                       # Mode chat interactif")
         print("\nExemples:")
         print("  python agent_nlp.py recit.txt                    # → recit_analysis.json")
-        print("  python agent_nlp.py rapport.txt resultat.json   # → resultat.json")
-        print("  python agent_nlp.py rapport.txt --offline       # → mode fallback")
+        print("  python agent_nlp.py document.pdf                # → document_analysis.json")
+        print("  python agent_nlp.py --batch recit.txt,rapport.txt # → batch_analysis_2_files.json")
+        print("  python agent_nlp.py --directory ./documents      # → batch_analysis_X_files.json")
+        print("  python agent_nlp.py --pattern \"*.txt\"           # → batch_analysis_X_files.json")
+        print("\nFormats supportés:")
+        print("  📄 Texte: .txt, .py, .md, .json, .csv, .xml, .html, .log")
+        print("  📄 PDF: .pdf (extraction automatique du texte)")
         print("\nCapacités de l'Agent IA:")
         print("  🧠 Raisonnement autonome sur les tâches")
         print("  📊 Planification d'actions")
         print("  🔧 Utilisation d'outils spécialisés")
         print("  💭 Mémoire conversationnelle")
         print("  🔍 Analyse contextuelle avancée")
+        print("  📄 Support PDF natif avec extraction de texte")
+        print("  🔄 Traitement en lot de multiples fichiers")
         print("\nFormat de sortie JSON:")
-        print('  {')
-        print('    "file_path": "chemin/vers/fichier",')
-        print('    "resume": "résumé du contenu",')
-        print('    "warning": true/false')
-        print('  }')
+        print('  Fichier unique: {"file_path": "...", "resume": "...", "warning": true/false}')
+        print('  Traitement en lot: {"batch_info": {...}, "files": [...], "detailed_results": {...}}')
         return
     
     if sys.argv[1] == "--test":
@@ -611,6 +1021,61 @@ def main():
         chat_mode()
         return
     
+    # Traitement en lot
+    if sys.argv[1] == "--batch":
+        if len(sys.argv) < 3:
+            print("❌ Erreur: Veuillez spécifier les fichiers à traiter")
+            print("Exemple: python agent_nlp.py --batch fichier1.txt,fichier2.txt")
+            return
+        
+        file_paths = [path.strip() for path in sys.argv[2].split(',')]
+        offline_mode = len(sys.argv) > 3 and sys.argv[3] == "--offline"
+        
+        try:
+            print(f"🔄 Traitement en lot de {len(file_paths)} fichiers...")
+            result = process_multiple_files(file_paths, offline_mode)
+            print(f"✅ Traitement terminé! Résultat sauvegardé dans le fichier JSON")
+        except Exception as e:
+            print(f"❌ Erreur lors du traitement en lot: {e}")
+        return
+    
+    # Traitement d'un dossier
+    if sys.argv[1] == "--directory":
+        if len(sys.argv) < 3:
+            print("❌ Erreur: Veuillez spécifier le dossier à traiter")
+            print("Exemple: python agent_nlp.py --directory ./documents")
+            return
+        
+        directory_path = sys.argv[2]
+        offline_mode = len(sys.argv) > 3 and sys.argv[3] == "--offline"
+        
+        try:
+            print(f"📁 Traitement du dossier {directory_path}...")
+            result = process_directory(directory_path, offline_mode=offline_mode)
+            print(f"✅ Traitement terminé! Résultat sauvegardé dans le fichier JSON")
+        except Exception as e:
+            print(f"❌ Erreur lors du traitement du dossier: {e}")
+        return
+    
+    # Traitement par pattern
+    if sys.argv[1] == "--pattern":
+        if len(sys.argv) < 3:
+            print("❌ Erreur: Veuillez spécifier le pattern à traiter")
+            print("Exemple: python agent_nlp.py --pattern \"*.txt\"")
+            return
+        
+        patterns = [sys.argv[2]]
+        offline_mode = len(sys.argv) > 3 and sys.argv[3] == "--offline"
+        
+        try:
+            print(f"🔍 Traitement par pattern {patterns[0]}...")
+            result = process_file_patterns(patterns, offline_mode=offline_mode)
+            print(f"✅ Traitement terminé! Résultat sauvegardé dans le fichier JSON")
+        except Exception as e:
+            print(f"❌ Erreur lors du traitement par pattern: {e}")
+        return
+    
+    # Traitement d'un fichier unique (comportement original)
     file_path = sys.argv[1]
     output_file = None
     offline_mode = False

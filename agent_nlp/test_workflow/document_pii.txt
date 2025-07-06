@@ -1,0 +1,19 @@
+Données clients - Confidentiel
+==============================
+
+Client 1: 
+- Nom: Marie Dupont
+- Email: marie.dupont@example.com
+- Téléphone: 06 12 34 56 78
+- Adresse: 123 Rue de la Paix, 75001 Paris
+
+Client 2:
+- Nom: Paul Bernard
+- Email: paul.bernard@test.fr
+- Téléphone: +33 1 23 45 67 89
+- Carte bancaire: 4111 1111 1111 1111
+
+Informations de test:
+- Email fictif: test@example.com
+- Téléphone test: 01 23 45 67 89
+- Données d'exemple seulement
