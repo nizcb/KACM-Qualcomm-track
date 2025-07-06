@@ -153,7 +153,8 @@ agent_executor = AgentExecutor(
     agent=agent,                    # The ReAct agent instance
     tools=tools,                    # Tools available to the agent
     verbose=True,                   # Enable detailed logging of agent steps
-    handle_parsing_errors=True      # Automatically handle malformed LLM responses
+    handle_parsing_errors=True,      # Automatically handle malformed LLM responses
+    max_iterations=3  # Prevent infinite loops
 )
 
 # Main execution block - handles command-line usage

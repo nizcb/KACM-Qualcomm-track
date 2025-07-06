@@ -211,7 +211,7 @@ You are an assistant helping organize and protect user files. The following is a
 """{transcript}"""
 
 Your task is to:
-1. Summarize the file content in no more than 6 lines.
+1. Summarize the file content in no more than 100 words. Make it concise and clear, focusing on the main points discussed in the audio.
 2. Identify if the speaker shared any SECURITY-SENSITIVE information such as:
    - Credit card numbers, passwords, API keys, tokens
    - Social security numbers, government IDs
@@ -244,6 +244,21 @@ and make sure the filepath is correctly formatted with double backslashes (\\) f
 
         # Print status message
         print("🦙 Running LLaMA via Ollama...")
+
+        # Check if Ollama is available
+        try:
+            # Test if ollama command exists
+            subprocess.run(["ollama", "--version"], 
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
+                         check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return {
+                "summary": None,
+                "contains_pii": None,
+                "protect": None,
+                "reason": "Ollama is not installed or not in PATH. Please install Ollama from https://ollama.ai/",
+                "filepath": metadata['filepath']
+            }
         
         # Execute Ollama command with the prompt
         result = subprocess.run(
