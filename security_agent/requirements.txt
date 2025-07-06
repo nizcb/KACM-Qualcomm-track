@@ -1,36 +1,21 @@
-# Security Agent MVP - Consolidated Version Requirements
+# Security Agent API - Dépendances
 # Compatible Windows, macOS, Linux
 
-# Core FastAPI dependencies
+# API REST FastAPI
 fastapi>=0.104.0
 uvicorn>=0.24.0
 pydantic>=2.5.0
+python-multipart>=0.0.6
 
-# Cryptography (cross-platform)
-pyAesCrypt>=6.1.0
-keyring>=24.3.0
-
-# Database (SQLite inclus avec Python)
-# SQLite est inclus avec Python (pas besoin d'installation séparée)
-
-# HTTP client (optionnel pour tests)
-httpx>=0.25.0
-requests>=2.31.0
-
-# Development/Testing (optionnel)
-pytest>=7.4.0
-pytest-asyncio>=0.21.0
-
-# Interface Streamlit pour test
+# Interface Streamlit
 streamlit>=1.28.0
-plotly>=5.15.0
 pandas>=2.0.0
 
-# Dépendances spécifiques OS pour keyring
-# Linux: peut nécessiter python3-keyring via apt/yum
-# Windows: Windows Credential Store (automatique)
-# macOS: Keychain (automatique)
+# Chiffrement
+pyAesCrypt>=6.1.0
 
-# Dépendances optionnelles pour keyring sur Linux
-# Si keyring échoue, utiliser variables d'environnement
-secretstorage>=3.3.0; sys_platform == "linux"
+# Requêtes HTTP pour Ollama et tests
+requests>=2.31.0
+
+# Base de données (SQLite inclus avec Python)
+# Pas de dépendances supplémentaires nécessaires

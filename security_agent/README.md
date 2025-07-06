@@ -1,90 +1,63 @@
-# Agent de Sécurité IA - Version Minimale
+# Agent de Sécurité IA
 
-Agent de sécurité intelligent qui utilise l'IA (Llama via Ollama) pour analyser et expliquer les contenus des fichiers lors des opérations de chiffrement et déchiffrement.
+Agent de sécurité intelligent avec chiffrement AES-256 et analyse IA via Ollama/Llama.
 
-## Architecture Simplifiée
-
-Le projet est organisé en **deux scripts principaux** :
-
-1. **`security_agent_core.py`** - Agent principal avec toutes les fonctionnalités :
-   - Chiffrement/Déchiffrement AES-256
-   - Analyse IA via Ollama/Llama
-   - Gestion du vault sécurisé
-   - Authentification par phrase secrète
-   - Interface CLI complète
-
-2. **`security_interface.py`** - Interface Streamlit séparée :
-   - Interface graphique moderne
-   - Connexion à l'agent via import Python
-   - Fonctionnalités complètes en mode graphique
-
-## Installation Rapide
+## 🚀 Démarrage rapide
 
 ```bash
 # Installer les dépendances
 pip install -r requirements.txt
 
-# Démarrer l'interface Streamlit
-./start.sh
+# Lancer l'interface
+./run.sh
 ```
 
-## Utilisation
+Interface disponible sur : http://localhost:8501
 
-### Interface Graphique (Recommandée)
-```bash
-./start.sh
-```
-Puis ouvrir http://localhost:8501 dans votre navigateur.
-
-### Ligne de Commande
-```bash
-# Test de l'agent
-python security_agent_core.py test
-
-# Chiffrement d'un fichier
-python security_agent_core.py encrypt /path/to/file.txt
-
-# Déchiffrement d'un fichier
-python security_agent_core.py decrypt /path/to/encrypted/file.aes
-```
-
-## Fonctionnalités
-
-- ✅ **Chiffrement/Déchiffrement** : AES-256 avec clés sécurisées
-- ✅ **Analyse IA** : Explication intelligente du contenu via Llama 3.2
-- ✅ **Vault sécurisé** : Stockage SQLite chiffré des métadonnées
-- ✅ **Authentification** : Protection par phrase secrète
-- ✅ **Auto-installation** : Ollama et modèle Llama installés automatiquement
-- ✅ **Interface moderne** : Streamlit avec design responsive
-
-## Structure du Projet
+## 📁 Structure
 
 ```
 security_agent/
-├── security_agent_core.py    # Agent principal (CLI + fonctionnalités)
+├── security_agent_core.py    # Agent principal
 ├── security_interface.py     # Interface Streamlit
-├── start.sh                  # Script de démarrage
-├── requirements.txt          # Dépendances Python
-├── README.md                # Documentation
-├── .gitignore               # Fichiers ignorés par Git
-├── vault/                   # Vault sécurisé (SQLite + clés)
+├── run.sh                    # Script de démarrage
+├── requirements.txt          # Dépendances
+├── test_file.txt            # Fichier de test
+├── vault/                   # Base de données sécurisée
 ├── encrypted/               # Fichiers chiffrés
-├── decrypted/               # Fichiers déchiffrés (temporaires)
-└── test_sensitive_file.txt  # Fichier de test
+└── decrypted/               # Fichiers déchiffrés (temporaires)
 ```
 
-## Sécurité
+## 🔐 Fonctionnalités
 
-- 🔒 **Chiffrement AES-256** avec clés générées aléatoirement
-- 🔐 **Authentification** par phrase secrète
-- 🗄️ **Vault protégé** par mot de passe maître
-- 🧹 **Nettoyage automatique** des fichiers temporaires
-- 🔍 **Analyse IA** sans stockage permanent du contenu
+- **Chiffrement AES-256** : Sécurisation des fichiers sensibles
+- **Analyse IA** : Explication du contenu via Llama 3.2
+- **Vault sécurisé** : Base de données SQLite chiffrée
+- **Authentification** : Protection par phrase secrète
+- **Interface moderne** : Streamlit responsive
 
-## Développement
+## 🧪 Test
 
-Le projet est maintenant simplifié avec seulement deux scripts essentiels :
-- Un agent principal autonome (`security_agent_core.py`)
-- Une interface web séparée (`security_interface.py`)
+**Fichier de test** : `test_file.txt`
+**Phrase secrète** : `mon_secret_ultra_securise_2024`
 
-Cette architecture permet une utilisation flexible, que ce soit via l'interface graphique ou en ligne de commande.
+## 🛠️ Utilisation
+
+### Interface graphique
+1. Lancer : `./run.sh`
+2. Ouvrir : http://localhost:8501
+3. Chiffrer un fichier
+4. Déchiffrer avec authentification
+
+### Ligne de commande
+```bash
+# Test de l'agent
+python security_agent_core.py test
+```
+
+## 🔒 Sécurité
+
+- Chiffrement AES-256 avec clés aléatoires
+- Authentification par phrase secrète
+- Vault protégé par clé maître
+- Nettoyage automatique des fichiers temporaires
