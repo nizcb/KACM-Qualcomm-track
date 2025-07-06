@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Vision pour Neurosort - Analyse de fichiers visuels avec détection PII avancée
+Agent Vision pour Neurosort - Analyse de fichiers images avec détection PII avancée
 Hackathon Qualcomm Edge-AI - 100% offline
 
 Pipeline complet:
@@ -36,9 +36,12 @@ from pathlib import Path
 from PIL import Image
 from pydantic import BaseModel
 from typing import List, Optional, Tuple
+import concurrent.futures
 import json
 import time
 import threading
+import tempfile
+import os
 
 # Fix pour compatibilité PIL/Pillow - ANTIALIAS déprécié
 try:
@@ -57,13 +60,7 @@ except ImportError:
     ONNX_AVAILABLE = False
     ort = None
 
-# Import PDF support
-try:
-    import pdf2image
-    PDF_AVAILABLE = True
-except ImportError:
-    PDF_AVAILABLE = False
-    pdf2image = None
+
 
 # Configuration du logger
 logger = logging.getLogger(__name__)
@@ -76,28 +73,13 @@ if not logger.handlers:
 class VisionArgs(BaseModel):
     """Arguments pour l'analyse de document visuel"""
     path: str
-    bytes: Optional[bytes] = None
-    extract_pages: Optional[List[int]] = None  # Pages spécifiques pour PDF
+    image_bytes: Optional[bytes] = None
 
-class PIISpan(BaseModel):
-    """Position d'une entité PII détectée dans le texte"""
-    start: int
-    end: int
-    label: str
-
-class FileMeta(BaseModel):
-    """Métadonnées complètes d'un fichier analysé"""
-    path: str
-    source: str = "vision"
-    text: str = ""
-    summary: str = ""
-    tags: List[str] = []
-    pii_detected: bool = False
-    pii_types: List[str] = []
-    pii_spans: List[PIISpan] = []
-    status: str = "ok"
-    pages_processed: int = 0  # Nombre de pages traitées (PDF)
-    file_type: str = "image"  # "image" ou "pdf"
+class VisionResponse(BaseModel):
+    """Réponse simplifiée de l'agent Vision - 3 attributs seulement"""
+    filepath: str
+    summary: str
+    warning: bool  # True = contient des informations sensibles
 
 class NSFWDetector:
     """
@@ -106,7 +88,7 @@ class NSFWDetector:
     """
     
     def __init__(self, model_path: str = "ai_models/nsfw/nsfw_model.onnx"):
-        self.model_path = Path(model_path)
+        self.model_path = Path(model_path).resolve()  # Cross-platform path handling
         self.session = None
         self.input_name = None
         self.output_name = None
@@ -257,7 +239,6 @@ def diagnose_system_dependencies():
         'cv2': 'opencv-python',
         'PIL': 'Pillow',
         'easyocr': 'easyocr',
-        'pdf2image': 'pdf2image',
         'numpy': 'numpy',
         'requests': 'requests',
         'pydantic': 'pydantic'
@@ -273,134 +254,99 @@ def diagnose_system_dependencies():
             print(f"❌ {package} - MANQUANT")
             missing_packages.append(package)
     
-    # Vérification Poppler selon l'OS
-    print(f"\n🔧 DÉPENDANCES SYSTÈME:")
-    print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    
-    # Détection Poppler
-    poppler_found = False
-    poppler_paths = []
-    
-    if system == "Windows":
-        executable = "pdftoppm.exe"
-        
-        # Vérifier conda d'abord
-        if env_type.startswith("Conda"):
-            conda_poppler = env_path / "Library" / "bin" / executable
-            if conda_poppler.exists():
-                poppler_found = True
-                poppler_paths.append(str(conda_poppler.parent))
-        
-        # Autres emplacements Windows
-        potential_paths = [
-            "C:/poppler/bin",
-            "C:/Program Files/poppler/bin", 
-            "C:/Program Files (x86)/poppler/bin"
-        ]
-        
-        for path in potential_paths:
-            if Path(path).exists() and (Path(path) / executable).exists():
-                poppler_found = True
-                poppler_paths.append(path)
-    
-    elif system == "Linux":
-        executable = "pdftoppm"
-        
-        # Vérifier conda d'abord
-        if env_type.startswith("Conda"):
-            conda_poppler = env_path / "bin" / executable
-            if conda_poppler.exists():
-                poppler_found = True
-                poppler_paths.append(str(conda_poppler.parent))
-        
-        # Vérifier chemins système
-        system_paths = ["/usr/bin", "/usr/local/bin"]
-        for path in system_paths:
-            if Path(path).exists() and (Path(path) / executable).exists():
-                poppler_found = True
-                poppler_paths.append(path)
-    
-    elif system == "Darwin":  # macOS
-        executable = "pdftoppm"
-        
-        # Vérifier conda d'abord  
-        if env_type.startswith("Conda"):
-            conda_poppler = env_path / "bin" / executable
-            if conda_poppler.exists():
-                poppler_found = True
-                poppler_paths.append(str(conda_poppler.parent))
-        
-        # Homebrew
-        brew_paths = ["/opt/homebrew/bin", "/usr/local/bin"]
-        for path in brew_paths:
-            if Path(path).exists() and (Path(path) / executable).exists():
-                poppler_found = True
-                poppler_paths.append(path)
-    
-    # Vérifier PATH comme dernier recours
-    if not poppler_found and shutil.which(executable.replace('.exe', '')):
-        poppler_found = True
-        poppler_paths.append("PATH")
-    
-    if poppler_found:
-        print(f"✅ Poppler PDF Utils")
-        for path in poppler_paths:
-            print(f"   📍 {path}")
-    else:
-        print(f"❌ Poppler PDF Utils - MANQUANT")
-    
-    # Instructions d'installation
-    if missing_packages or not poppler_found:
+    # Instructions d'installation pour les packages manquants
+    if missing_packages:
         print(f"\n🛠️  INSTRUCTIONS D'INSTALLATION:")
         print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        
-        if missing_packages:
-            print(f"📦 Packages Python manquants:")
-            if env_type.startswith("Conda"):
-                print(f"   conda install {' '.join(missing_packages)}")
-            else:
-                print(f"   pip install {' '.join(missing_packages)}")
-        
-        if not poppler_found:
-            print(f"🔧 Poppler PDF Utils:")
-            if system == "Windows":
-                if env_type.startswith("Conda"):
-                    print(f"   conda install -c conda-forge poppler")
-                else:
-                    print(f"   Manuel: https://github.com/oschwartz10612/poppler-windows/releases/")
-                    print(f"   Extraire dans C:/poppler/ et ajouter C:/poppler/bin au PATH")
-            elif system == "Linux":
-                print(f"   Ubuntu/Debian: sudo apt-get install poppler-utils")
-                print(f"   RHEL/CentOS: sudo yum install poppler-utils")
-                print(f"   Conda: conda install -c conda-forge poppler")
-            elif system == "Darwin":
-                print(f"   Homebrew: brew install poppler")
-                print(f"   Conda: conda install -c conda-forge poppler")
+        print(f"📦 Packages Python manquants:")
+        if env_type.startswith("Conda"):
+            print(f"   conda install {' '.join(missing_packages)}")
+        else:
+            print(f"   pip install {' '.join(missing_packages)}")
     else:
         print(f"\n✅ SYSTÈME PRÊT - Toutes les dépendances sont installées !")
     
     print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-    return poppler_found and len(missing_packages) == 0
+    return len(missing_packages) == 0
 
 class VisionAgent:
-    """Agent Vision pour analyse de documents visuels"""
+    """Agent Vision pour analyse de documents visuels avec LLM intelligent"""
     
     def __init__(self):
         """Initialise l'agent avec les modèles nécessaires"""
         self.ocr_reader = None
-        self.nsfw_model = None
         self.llm_url = "http://localhost:1234/v1/chat/completions"  # LM Studio local
         
-        # Patterns PII pour détection textuelle
-        self.pii_patterns = {
-            "EMAIL": re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
-            "PHONE": re.compile(r'\b(?:\+33|0)[1-9](?:[0-9]{8})\b'),
-            "CARD_NUMBER": re.compile(r'\b(?:\d{4}[\s-]?){3}\d{4}\b'),
-            "IBAN": re.compile(r'\b[A-Z]{2}\d{2}[A-Z0-9]{4}\d{7}[A-Z0-9]{1,16}\b'),
-            "SSN": re.compile(r'\b\d{13}\b'),  # Numéro de sécurité sociale français
-        }
-        
-        logger.info("Agent Vision initialisé")
+        logger.info("Agent Vision initialisé - Mode LLM intelligent")
+    
+    def test_llm_connection(self) -> bool:
+        """Test rapide de connectivité LLM"""
+        try:
+            test_payload = {
+                "messages": [{"role": "user", "content": "Hello"}],
+                "max_tokens": 10
+            }
+            response = requests.post(self.llm_url, json=test_payload, timeout=5)
+            if response.status_code == 200:
+                logger.info(f"✅ LLM connecté: {self.llm_url}")
+                return True
+            else:
+                logger.warning(f"❌ LLM erreur {response.status_code}: {self.llm_url}")
+                return False
+        except Exception as e:
+            logger.warning(f"❌ LLM inaccessible: {e}")
+            return False
+    
+    def test_llm_vision_capability(self) -> bool:
+        """Test si le LLM peut analyser les images directement (multimodal)"""
+        try:
+            # Créer une petite image de test encodée en base64
+            import base64
+            test_image = np.zeros((50, 50, 3), dtype=np.uint8)
+            test_image.fill(255)  # Image blanche simple
+            cv2.putText(test_image, "TEST", (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+            
+            # Encoder en base64
+            _, buffer = cv2.imencode('.jpg', test_image)
+            image_base64 = base64.b64encode(buffer).decode('utf-8')
+            
+            # Test avec format OpenAI vision
+            vision_payload = {
+                "messages": [
+                    {
+                        "role": "user", 
+                        "content": [
+                            {"type": "text", "text": "What do you see in this image? Answer in one word only."},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 10
+            }
+            
+            response = requests.post(self.llm_url, json=vision_payload, timeout=10)
+            
+            if response.status_code == 200:
+                result = response.json()
+                response_text = result['choices'][0]['message']['content'].strip().lower()
+                
+                # Vérifier si la réponse contient du texte relatif à l'image
+                if any(word in response_text for word in ['test', 'text', 'word', 'image', 'see']):
+                    logger.info("🎯 LLM Vision DÉTECTÉ: Le modèle peut analyser les images directement!")
+                    return True
+                else:
+                    logger.info(f"📝 LLM Vision partiel: réponse='{response_text}' (non concluant)")
+                    return False
+            else:
+                logger.info(f"❌ LLM Vision test échoué: HTTP {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.info(f"📝 LLM Vision non disponible: {e}")
+            return False
     
     def _init_ocr(self):
         """Initialise EasyOCR de manière lazy avec cache global"""
@@ -424,16 +370,17 @@ class VisionAgent:
                 image = Image.open(BytesIO(bytes_data))
                 return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
             else:
-                # Charger depuis fichier
-                if not Path(path).exists():
-                    logger.error(f"Fichier non trouvé: {path}")
+                # Charger depuis fichier avec gestion cross-platform des chemins
+                file_path = Path(path).resolve()
+                if not file_path.exists():
+                    logger.error(f"Fichier non trouvé: {file_path}")
                     return None
                 
-                # Solution pour les caractères spéciaux dans les chemins Windows
+                # Solution robuste pour caractères spéciaux et tous OS
                 # Utiliser PIL puis convertir en OpenCV
                 try:
-                    # Méthode 1: Utiliser PIL pour éviter les problèmes d'encodage
-                    pil_image = Image.open(path)
+                    # Méthode 1: Utiliser PIL pour compatibilité cross-platform
+                    pil_image = Image.open(str(file_path))  # Conversion explicite en string
                     # Convertir PIL en array numpy puis en format OpenCV (BGR)
                     if pil_image.mode == 'RGBA':
                         # Convertir RGBA en RGB puis BGR
@@ -452,10 +399,10 @@ class VisionAgent:
                 except Exception as pil_error:
                     logger.warning(f"Échec chargement PIL: {pil_error}, tentative OpenCV...")
                     
-                    # Méthode 2: Fallback avec cv2.imdecode pour éviter les caractères spéciaux
+                    # Méthode 2: Fallback avec cv2.imdecode pour tous OS
                     try:
-                        # Lire le fichier en bytes puis décoder
-                        with open(path, 'rb') as f:
+                        # Lire le fichier en bytes puis décoder (cross-platform)
+                        with open(file_path, 'rb') as f:
                             file_bytes = f.read()
                         
                         # Convertir bytes en array numpy
@@ -467,7 +414,7 @@ class VisionAgent:
                         if image is not None:
                             return image
                         else:
-                            logger.error(f"Impossible de décoder l'image: {path}")
+                            logger.error(f"Impossible de décoder l'image: {file_path}")
                             return None
                             
                     except Exception as decode_error:
@@ -478,199 +425,8 @@ class VisionAgent:
             logger.error(f"Erreur chargement image: {e}")
             return None
     
-    def _is_pdf(self, path: str) -> bool:
-        """Vérifie si le fichier est un PDF"""
-        return Path(path).suffix.lower() == '.pdf'
-    
-    def _detect_poppler_path(self) -> Optional[str]:
-        """
-        Détecte automatiquement le chemin Poppler selon l'OS et l'élévénement
-        Compatible Windows/Linux/Mac, conda/pip/installation manuelle
-        
-        Returns:
-            Chemin vers Poppler ou None si non trouvé
-        """
-        import platform
-        import shutil
-        import sys
-        from pathlib import Path
-        
-        system = platform.system().lower()
-        logger.info(f"🔍 Détection Poppler pour {system}...")
-        
-        # Liste des chemins candidats selon l'OS
-        candidate_paths = []
-        executable_name = "pdftoppm"
-        
-        if system == "windows":
-            executable_name = "pdftoppm.exe"
-            
-            # 1. Environnement conda/miniconda (priorité haute)
-            if 'conda' in sys.executable.lower() or 'anaconda' in sys.executable.lower():
-                # Détecter le répertoire conda automatiquement
-                conda_base = Path(sys.executable).parent.parent  # De Scripts/python.exe vers racine
-                conda_poppler = conda_base / "Library" / "bin"
-                candidate_paths.append(str(conda_poppler))
-                logger.info(f"🐍 Environnement conda détecté: {conda_base}")
-            
-            # 2. Chemins conda standards (si pas dans un env conda)
-            potential_conda_paths = [
-                Path.home() / "anaconda3" / "Library" / "bin",
-                Path.home() / "miniconda3" / "Library" / "bin",
-                Path("C:/") / "anaconda3" / "Library" / "bin",
-                Path("C:/") / "miniconda3" / "Library" / "bin",
-                Path("C:/") / "ProgramData" / "Anaconda3" / "Library" / "bin",
-                Path("C:/") / "ProgramData" / "Miniconda3" / "Library" / "bin"
-            ]
-            candidate_paths.extend([str(p) for p in potential_conda_paths])
-            
-            # 3. Installation manuelle Poppler
-            manual_paths = [
-                "C:/poppler/bin",
-                "C:/Program Files/poppler/bin",
-                "C:/Program Files (x86)/poppler/bin"
-            ]
-            candidate_paths.extend(manual_paths)
-            
-        elif system == "linux":
-            # 1. Environnement conda
-            if 'conda' in sys.executable.lower():
-                conda_base = Path(sys.executable).parent.parent
-                conda_poppler = conda_base / "bin"
-                candidate_paths.append(str(conda_poppler))
-            
-            # 2. Installation système standard
-            system_paths = [
-                "/usr/bin",
-                "/usr/local/bin",
-                "/opt/conda/bin",
-                "/home/conda/bin"
-            ]
-            candidate_paths.extend(system_paths)
-            
-        elif system == "darwin":  # macOS
-            # 1. Environnement conda
-            if 'conda' in sys.executable.lower():
-                conda_base = Path(sys.executable).parent.parent
-                conda_poppler = conda_base / "bin"
-                candidate_paths.append(str(conda_poppler))
-            
-            # 2. Homebrew
-            brew_paths = [
-                "/opt/homebrew/bin",  # Apple Silicon
-                "/usr/local/bin",     # Intel Mac
-                "/usr/bin"
-            ]
-            candidate_paths.extend(brew_paths)
-        
-        # Test de chaque chemin candidat
-        for path in candidate_paths:
-            if not path:
-                continue
-                
-            executable_path = Path(path) / executable_name
-            
-            if executable_path.exists() and executable_path.is_file():
-                logger.info(f"✅ Poppler trouvé: {path}")
-                return path
-            else:
-                logger.debug(f"❌ Poppler non trouvé: {executable_path}")
-        
-        # Dernier recours: vérifier si pdftoppm est dans le PATH
-        if shutil.which(executable_name):
-            logger.info(f"✅ Poppler trouvé dans PATH: {executable_name}")
-            return None  # pdf2image utilisera le PATH
-        
-        logger.error("❌ Poppler non trouvé sur ce système")
-        logger.error("💡 Installez Poppler:")
-        if system == "windows":
-            logger.error("   - Conda: conda install -c conda-forge poppler")
-            logger.error("   - Manuel: https://github.com/oschwartz10612/poppler-windows/releases/")
-        elif system == "linux":
-            logger.error("   - Ubuntu/Debian: sudo apt-get install poppler-utils")
-            logger.error("   - Conda: conda install -c conda-forge poppler")
-        elif system == "darwin":
-            logger.error("   - Homebrew: brew install poppler")
-            logger.error("   - Conda: conda install -c conda-forge poppler")
-        
-        return None
-
-    def _convert_pdf_to_images(self, pdf_path: str, extract_pages: Optional[List[int]] = None) -> List[np.ndarray]:
-        """
-        Convertit un PDF en liste d'images
-        
-        Args:
-            pdf_path: Chemin vers le PDF
-            extract_pages: Pages spécifiques à extraire (1-indexé), None = toutes
-            
-        Returns:
-            Liste des images (format OpenCV)
-        """
-        if not PDF_AVAILABLE:
-            logger.error("❌ pdf2image non disponible - installez avec: pip install pdf2image")
-            return []
-        
-        try:
-            logger.info(f"📄 Conversion PDF en cours: {pdf_path}")
-            
-            # Paramètres de conversion optimisés pour la vitesse
-            conversion_params = {
-                'dpi': 150,  # Réduire DPI pour plus de vitesse (au lieu de 200)
-                'fmt': 'RGB',
-                'thread_count': 4,  # Augmenter threads
-                'use_pdftocairo': False,  # Plus rapide que cairo
-                'grayscale': False,
-                'transparent': False,
-                'poppler_path': None  # Sera configuré automatiquement
-            }
-            
-            # Détection automatique cross-platform de Poppler
-            poppler_path = self._detect_poppler_path()
-            if poppler_path:
-                conversion_params['poppler_path'] = poppler_path
-                logger.info(f"🔧 Poppler utilisé: {poppler_path}")
-            else:
-                logger.info("🔧 Poppler utilisé depuis PATH (ou non trouvé)")
-            
-            # Extraire pages spécifiques ou toutes
-            if extract_pages:
-                # Convertir en index 0-based pour pdf2image
-                first_page = min(extract_pages)
-                last_page = max(extract_pages)
-                conversion_params.update({
-                    'first_page': first_page,
-                    'last_page': last_page
-                })
-                logger.info(f"📄 Extraction pages {first_page}-{last_page}")
-            
-            # Conversion PDF → PIL Images
-            pil_images = pdf2image.convert_from_path(pdf_path, **conversion_params)
-            
-            # Filtrer les pages si nécessaire
-            if extract_pages and len(extract_pages) < len(pil_images):
-                filtered_images = []
-                for page_num in extract_pages:
-                    page_index = page_num - 1  # Convertir en index 0-based
-                    if 0 <= page_index < len(pil_images):
-                        filtered_images.append(pil_images[page_index])
-                pil_images = filtered_images
-            
-            # Convertir PIL → OpenCV
-            opencv_images = []
-            for i, pil_img in enumerate(pil_images):
-                # PIL RGB → OpenCV BGR
-                opencv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                opencv_images.append(opencv_img)
-            
-            logger.info(f"✅ PDF converti: {len(opencv_images)} pages")
-            return opencv_images
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur conversion PDF: {e}")
-            return []
-    
     def _extract_text_ocr(self, image: np.ndarray) -> str:
-        """Extrait le texte d'une image avec OCR robuste"""
+        """Extrait le texte d'une image avec OCR ultra-robuste et multi-stratégies"""
         try:
             self._init_ocr()
             
@@ -679,289 +435,461 @@ class VisionAgent:
                 logger.error("Image None passée à l'OCR")
                 return ""
             
-            # Gérer différents formats d'image
+            logger.info(f"🔍 OCR Ultra-robuste: Début extraction sur image {image.shape}")
+            
+            # === STRATÉGIE MULTI-PRÉPROCESSING ===
+            processed_images = []
+            
+            # 1. Image originale convertie en RGB
             if len(image.shape) == 2:
-                # Image en niveaux de gris - convertir en RGB
-                rgb_image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-                logger.info(f"Image niveaux de gris convertie en RGB: {image.shape} → {rgb_image.shape}")
+                rgb_original = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
             elif len(image.shape) == 3 and image.shape[2] == 3:
-                # Image BGR standard - convertir en RGB
-                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                rgb_original = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             elif len(image.shape) == 3 and image.shape[2] == 4:
-                # Image RGBA - convertir en RGB
-                rgb_image = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
-                logger.info(f"Image RGBA convertie en RGB: {image.shape} → {rgb_image.shape}")
+                rgb_original = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
             else:
-                logger.error(f"Format d'image non supporté pour OCR: {image.shape}")
+                logger.error(f"Format d'image non supporté: {image.shape}")
                 return ""
             
-            # 2. Améliorer le contraste si nécessaire
-            gray = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2GRAY)
+            processed_images.append(("Original", rgb_original))
             
-            # Vérifier si l'image est trop sombre ou trop claire
+            # 2. Amélioration du contraste adaptatif
+            gray = cv2.cvtColor(rgb_original, cv2.COLOR_RGB2GRAY)
+            
+            # Égalisation d'histogramme CLAHE (plus doux que equalizeHist)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+            enhanced_gray = clahe.apply(gray)
+            enhanced_rgb = cv2.cvtColor(enhanced_gray, cv2.COLOR_GRAY2RGB)
+            processed_images.append(("CLAHE Enhanced", enhanced_rgb))
+            
+            # 3. Débruitage avec préservation des détails
+            denoised = cv2.fastNlMeansDenoising(gray, None, 10, 7, 21)
+            denoised_rgb = cv2.cvtColor(denoised, cv2.COLOR_GRAY2RGB)
+            processed_images.append(("Denoised", denoised_rgb))
+            
+            # 4. Morphologie pour améliorer la lisibilité du texte
+            kernel = np.ones((1,1), np.uint8)
+            morph = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel)
+            morph_rgb = cv2.cvtColor(morph, cv2.COLOR_GRAY2RGB)
+            processed_images.append(("Morphology", morph_rgb))
+            
+            # 5. Binarisation adaptative pour texte faible contraste
+            adaptive_thresh = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+            )
+            binary_rgb = cv2.cvtColor(adaptive_thresh, cv2.COLOR_GRAY2RGB)
+            processed_images.append(("Adaptive Binary", binary_rgb))
+            
+            # 6. Si image très sombre/claire, ajustement gamma
             mean_brightness = np.mean(gray)
-            if mean_brightness < 50 or mean_brightness > 200:
-                # Égalisation d'histogramme pour améliorer le contraste
-                gray = cv2.equalizeHist(gray)
-                rgb_image = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
-                logger.info(f"Image prétraitée pour OCR (luminosité: {mean_brightness:.1f})")
+            if mean_brightness < 80 or mean_brightness > 180:
+                gamma = 1.5 if mean_brightness < 80 else 0.7
+                gamma_corrected = np.array(255 * (gray / 255) ** gamma, dtype='uint8')
+                gamma_rgb = cv2.cvtColor(gamma_corrected, cv2.COLOR_GRAY2RGB)
+                processed_images.append(("Gamma {:.1f}".format(gamma), gamma_rgb))
+                logger.info(f"📊 Correction gamma {gamma:.1f} appliquée (luminosité: {mean_brightness:.1f})")
             
-            # 3. EasyOCR avec gestion d'erreur robuste
-            try:
-                # Essayer d'abord avec l'image prétraitée
-                results = self.ocr_reader.readtext(rgb_image)
-                
-                # Si pas de résultats, essayer avec l'image originale
-                if not results and len(image.shape) == 3:
-                    logger.info("Tentative OCR avec image originale...")
-                    original_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                    results = self.ocr_reader.readtext(original_rgb)
-                
-            except Exception as ocr_error:
-                logger.error(f"Erreur EasyOCR: {ocr_error}")
-                
-                # Fallback: essayer avec image en niveaux de gris
-                try:
-                    logger.info("Fallback OCR avec image en niveaux de gris...")
-                    if len(image.shape) == 3:
-                        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-                    else:
-                        gray = image
-                    results = self.ocr_reader.readtext(gray)
-                except Exception as fallback_error:
-                    logger.error(f"Fallback OCR échoué: {fallback_error}")
-                    return ""
+            # === EXTRACTION OCR MULTI-STRATÉGIES ===
+            all_results = []
+            confidence_threshold = 0.2  # Très permissif pour capturer plus de texte
             
-            # 4. Traiter les résultats
-            text_parts = []
-            for result in results:
+            for strategy_name, processed_img in processed_images:
                 try:
-                    # Format EasyOCR: (bbox, text, confidence)
-                    if len(result) >= 3:
-                        bbox, text, confidence = result[0], result[1], result[2]
+                    logger.debug(f"🔍 Tentative OCR: {strategy_name}")
+                    
+                    # EasyOCR avec paramètres optimaux pour extraction maximale
+                    results = self.ocr_reader.readtext(
+                        processed_img,
+                        detail=1,           # Retourner bbox + confidence
+                        paragraph=False,    # Traiter chaque ligne séparément
+                        width_ths=0.7,      # Seuil largeur plus permissif
+                        height_ths=0.7,     # Seuil hauteur plus permissif
+                        decoder='greedy',   # Décodage greedy plus rapide
+                        beamWidth=5,        # Largeur du faisceau pour plus de précision
+                        batch_size=1        # Traitement par lot
+                    )
+                    
+                    # Traiter chaque résultat
+                    for result in results:
+                        if len(result) >= 3:
+                            bbox, text, confidence = result[0], result[1], result[2]
+                            
+                            # Filtrage intelligent du texte
+                            clean_text = text.strip()
+                            if len(clean_text) >= 1 and confidence > confidence_threshold:
+                                # Nettoyer les caractères parasites mais garder la ponctuation
+                                clean_text = re.sub(r'[^\w\s\.,;:!?\-()/@#€$%&+=*]', ' ', clean_text)
+                                clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+                                
+                                if clean_text:
+                                    all_results.append({
+                                        'text': clean_text,
+                                        'confidence': confidence,
+                                        'strategy': strategy_name,
+                                        'bbox': bbox
+                                    })
+                                    logger.debug(f"✅ {strategy_name}: '{clean_text}' (conf: {confidence:.3f})")
+                    
+                    # Si cette stratégie a donné beaucoup de résultats, on peut s'arrêter
+                    if len([r for r in all_results if r['strategy'] == strategy_name]) > 10:
+                        logger.info(f"🎯 Stratégie {strategy_name} très productive, priorité donnée")
+                        break
                         
-                        # Seuil de confiance adaptatif
-                        min_confidence = 0.3  # Plus permissif que 0.5
-                        
-                        if confidence > min_confidence and text.strip():
-                            text_parts.append(text.strip())
-                            logger.debug(f"OCR: '{text}' (conf: {confidence:.2f})")
-                        
-                except Exception as result_error:
-                    logger.warning(f"Erreur traitement résultat OCR: {result_error}")
+                except Exception as strategy_error:
+                    logger.warning(f"❌ Stratégie {strategy_name} échouée: {strategy_error}")
                     continue
             
-            # 5. Assembler le texte final
-            full_text = " ".join(text_parts)
+            # === DÉDUPLICATION ET ASSEMBLAGE INTELLIGENT ===
+            if not all_results:
+                logger.warning("❌ Aucun texte extrait avec toutes les stratégies")
+                return ""
             
-            # Nettoyer le texte (enlever les caractères bizarres)
-            full_text = re.sub(r'[^\w\s\.,;:!?\-()]+', ' ', full_text)
-            full_text = re.sub(r'\s+', ' ', full_text).strip()
+            # Trier par confiance et position (top -> bottom, left -> right)
+            def sort_key(r):
+                bbox = r['bbox']
+                # Calculer centre du rectangle
+                center_y = (bbox[0][1] + bbox[2][1]) / 2
+                center_x = (bbox[0][0] + bbox[2][0]) / 2
+                # Priorité: confiance élevée + position lecture naturelle
+                return (-r['confidence'], center_y, center_x)
             
-            logger.info(f"OCR extrait {len(full_text)} caractères ({len(text_parts)} segments)")
+            all_results.sort(key=sort_key)
             
-            if len(full_text) == 0:
-                logger.warning("Aucun texte extrait par OCR - image peut contenir uniquement des éléments visuels")
+            # Déduplication basée sur similarité de texte
+            unique_texts = []
+            seen_texts = set()
             
-            return full_text
+            for result in all_results:
+                text = result['text']
+                text_normalized = re.sub(r'\s+', ' ', text.lower().strip())
+                
+                # Éviter les doublons exacts
+                if text_normalized not in seen_texts and len(text_normalized) > 0:
+                    unique_texts.append(text)
+                    seen_texts.add(text_normalized)
+                    
+                    # Limiter pour éviter les textes trop longs
+                    if len(unique_texts) > 100:  # Maximum 100 segments
+                        break
+            
+            # Assemblage final avec espacement intelligent
+            final_text = " ".join(unique_texts)
+            
+            # Nettoyage final
+            final_text = re.sub(r'\s+', ' ', final_text).strip()
+            
+            # Métriques de performance
+            total_extractions = len(all_results)
+            unique_extractions = len(unique_texts)
+            best_strategy = max(set(r['strategy'] for r in all_results), 
+                              key=lambda s: len([r for r in all_results if r['strategy'] == s]))
+            avg_confidence = sum(r['confidence'] for r in all_results) / len(all_results)
+            
+            logger.info(f"📊 OCR Ultra-robuste terminé:")
+            logger.info(f"   • {total_extractions} extractions totales")
+            logger.info(f"   • {unique_extractions} segments uniques")
+            logger.info(f"   • {len(final_text)} caractères finaux")
+            logger.info(f"   • Meilleure stratégie: {best_strategy}")
+            logger.info(f"   • Confiance moyenne: {avg_confidence:.3f}")
+            
+            if len(final_text) == 0:
+                logger.warning("⚠️ Texte final vide après traitement")
+            else:
+                logger.info(f"✅ Extraction réussie: '{final_text[:100]}{'...' if len(final_text) > 100 else ''}'")
+            
+            return final_text
             
         except Exception as e:
-            logger.error(f"Erreur OCR globale: {e}")
+            logger.error(f"❌ Erreur OCR ultra-robuste: {e}")
             logger.error(f"Type image: {type(image)}, Shape: {getattr(image, 'shape', 'N/A')}")
-            return ""
-    
-    def _detect_text_pii(self, text: str) -> tuple[bool, List[str], List[PIISpan]]:
-        """Détecte les PII dans le texte"""
-        pii_detected = False
-        pii_types = []
-        pii_spans = []
-        
-        for pii_type, pattern in self.pii_patterns.items():
-            matches = list(pattern.finditer(text))
-            if matches:
-                pii_detected = True
-                pii_types.append(pii_type)
+            
+            # Fallback ultime: OCR simple sur image originale
+            try:
+                logger.info("🔄 Fallback OCR simple...")
+                if len(image.shape) == 3:
+                    simple_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                else:
+                    simple_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
                 
-                for match in matches:
-                    pii_spans.append(PIISpan(
-                        start=match.start(),
-                        end=match.end(),
-                        label=pii_type
-                    ))
+                simple_results = self.ocr_reader.readtext(simple_rgb, detail=0)  # Texte seul
+                return " ".join(simple_results) if simple_results else ""
+                
+            except Exception as fallback_error:
+                logger.error(f"❌ Fallback OCR ultime échoué: {fallback_error}")
+                return ""
+    
+    async def _analyze_with_llm(self, text: str, image_context: str = "") -> tuple[str, bool]:
+        """
+        Analyse complète avec LLM pour résumé ET détection de contenu sensible
+        Retourne (summary, warning)
+        """
+        try:
+            # Prompt INTELLIGENT qui enseigne le raisonnement sans donner les réponses
+            print("🔍 Analyse LLM en cours de :", text)
+            prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+Tu es un EXPERT EN SÉCURITÉ DOCUMENTAIRE. Ta mission est d'analyser du texte OCR et détecter intelligemment les informations sensibles.
+
+=== PRINCIPE DE RAISONNEMENT ===
+Utilise ton intelligence pour identifier ce qui pourrait compromettre la vie privée, la sécurité financière, ou contenir du contenu inapproprié.
+
+=== MÉTHODOLOGIE D'ANALYSE ===
+
+🧠 RAISONNEMENT FINANCIER:
+• Cherche des patterns de CARTES DE PAIEMENT (peu importe la marque/société)
+• Séquences numériques longues qui ressemblent à des comptes/cartes
+• Codes de sécurité, dates d'expiration associées
+• Coordonnées bancaires de toute nature
+
+🧠 RAISONNEMENT IDENTITÉ:
+• Documents officiels d'identification personnelle
+• Numéros gouvernementaux, administratifs, légaux
+• Informations qui permettent d'identifier précisément une personne
+
+🧠 RAISONNEMENT CONTACT:
+• Moyens de communication personnels directs
+• Coordonnées permettant de joindre quelqu'un
+• Adresses physiques ou numériques privées
+
+🧠 RAISONNEMENT MÉDICAL:
+• Informations de santé personnelles
+• Relations patient-médecin
+• Données médicales confidentielles
+
+🧠 RAISONNEMENT PROFESSIONNEL:
+• Informations salariales ou financières personnelles
+• Données marquées comme confidentielles/privées
+• Secrets professionnels ou commerciaux
+
+🧠 RAISONNEMENT CONTENU INAPPROPRIÉ:
+• Contenu à caractère sexuel explicite
+• Nudité ou semi-nudité
+• Matériel pour adultes
+
+=== APPROCHE INTELLIGENTE ===
+• ANALYSE le contexte général du document
+• RÉFLÉCHIS à l'impact potentiel si ces informations étaient exposées
+• ÉVALUE si un individu pourrait être lésé par la divulgation
+• CONSIDÈRE les aspects légaux et éthiques
+
+=== RÈGLES DE PRUDENCE ===
+• En cas de DOUTE → penche vers WARNING=TRUE (mieux prévenir)
+• Informations publiques normales → WARNING=FALSE
+
+=== RENFORCEMENT DU RAISONNEMENT ===
+• Tu dois exercer un jugement rigoureux et nuancé, mais **ne jamais ignorer** les signaux faibles de sensibilité.
+• Si tu détectes un document officiel identifiable (ex: passeport, carte d’identité, permis ....), même partiellement, **le warning doit être true**.
+• Si tu détectes un nom + un identifiant personnel ou unique (ex: numéro, date, signature, email), considère cela comme **potentiellement sensible**.
+• Même si les informations sont courtes, réfléchis au **contexte implicite** : à quoi sert ce document ? À qui pourrait-il nuire s’il était exposé ?
+• Tu n’agis pas comme une règle fixe, mais comme un expert prudent qui **sait reconnaître un risque même subtil**.
+
+
+=== QUALITÉ DU RÉSUMÉ ===
+• Décris INTELLIGEMMENT le type de document
+• Mentionne les éléments principaux sans les répéter exactement
+• Si sensible: explique POURQUOI c'est préoccupant
+• Reste factuel et professionnel
+
+RÉPONDRE UNIQUEMENT EN JSON VALIDE:
+{{"summary": "Résumé intelligent et contextuel du document", "warning": true/false}}
+
+<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+TEXTE OCR À ANALYSER INTELLIGEMMENT:
+"{text}"
+
+LONGUEUR: {len(text)} caractères
+
+Applique ton raisonnement d'expert en sécurité pour analyser ce contenu et produire un résumé intelligent avec la détection appropriée.
+<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+
+            payload = {
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.1,  # Très déterministe pour sécurité
+                "max_tokens": 15000,   # Plus de tokens pour JSON complet sans troncature
+                "top_p": 0.9,        # Focus sur tokens probables
+                "frequency_penalty": 0.1,  # Éviter répétitions
+                "stream": False,
+                # Pas de stop token - on laisse le LLM finir le JSON
+            }
+            
+            # Tentative connexion LLM local avec timeout réduit
+            logger.info(f"🔗 Tentative connexion LLM: {self.llm_url}")
+            response = requests.post(self.llm_url, json=payload, timeout=120)  # 2 minutes max
+            
+            if response.status_code == 200:
+                result = response.json()
+                llm_response = result['choices'][0]['message']['content'].strip()
+                
+                # Parser la réponse JSON du LLM avec robustesse
+                try:
+                    print(f"🔍 Réponse LLM brute: '{llm_response[:200]}...'")
+                    
+                    # Nettoyer la réponse (enlever markdown si présent)
+                    clean_response = llm_response.strip()
+                    
+                    # Extraire JSON entre { et } si présent dans du texte
+                    import re
+                    json_match = re.search(r'\{.*\}', clean_response, re.DOTALL)
+                    if json_match:
+                        clean_response = json_match.group(0)
+                        print(f"🔧 JSON extrait: '{clean_response}'")
+                    
+                    # Nettoyer markdown
+                    if "```json" in clean_response:
+                        clean_response = clean_response.split("```json")[1].split("```")[0]
+                    elif "```" in clean_response:
+                        clean_response = clean_response.split("```")[1].split("```")[0]
+                    
+                    # Parser JSON directement - simple et efficace
+                    llm_analysis = json.loads(clean_response.strip())
+                    
+                    summary = llm_analysis.get("summary", "Document analysé par LLM")
+                    warning = llm_analysis.get("warning", False)
+                    
+                    print(f"✅ LLM JSON parsé: summary={len(summary)} chars, warning={warning}")
+                    
+                    logger.info(f"✅ LLM analyse: résumé={len(summary)} chars, warning={warning}")
+                    return summary, warning
+                    
+                except json.JSONDecodeError as e:
+                    print(f"❌ Échec parsing JSON: {e}")
+                    print(f"📄 Réponse complète: '{llm_response}'")
+                    logger.warning(f"Erreur parsing JSON LLM: {e}")
+                    logger.warning(f"Réponse brute: {llm_response[:200]}...")
+                    return self._fallback_analysis(text, image_context)
+                
+            else:
+                print(f"❌ LLM erreur HTTP {response.status_code}")
+                logger.warning(f"LLM local indisponible (status: {response.status_code})")
+                return self._fallback_analysis(text, image_context)
+                
+        except requests.exceptions.ConnectionError:
+            print(f"❌ LLM non accessible (connexion)")
+            logger.warning("🚫 LLM local non accessible - utilisation du fallback")
+            logger.warning(f"   URL testée: {self.llm_url}")
+            logger.warning("   Vérifiez que LM Studio (ou équivalent) est démarré")
+            return self._fallback_analysis(text, image_context)
+        except Exception as e:
+            print(f"❌ Erreur LLM: {e}")
+            logger.error(f"Erreur analyse LLM: {e}")
+            return self._fallback_analysis(text, image_context)
+    
+    def _fallback_analysis(self, text: str, image_context: str = "") -> tuple[str, bool]:
+        """
+        Analyse de fallback simple mais efficace
+        Retourne (summary, warning)
+        """
+        # Détection rapide de contenu sensible par mots-clés
+        sensitive_keywords = [
+            # Financier - ULTRA PRIORITÉ
+            "carte bancaire", "carte de crédit", "carte bleue", "visa", "mastercard", 
+            "american express", "amex", "iban", "bic", "rib", "compte", "banque",
+            "crédit", "débit", "cvv", "cryptogramme",
+            # Personnel
+            "@", "email", "téléphone", "portable", "adresse", "domicile",
+            # Officiel
+            "passeport", "permis", "cni", "carte d'identité", "sécurité sociale", "identité", "naissance",
+            # Médical
+            "médical", "santé", "docteur", "patient", "ordonnance",
+            # Professionnel sensible
+            "salaire", "rémunération", "confidentiel", "privé", "personnel"
+        ]
         
-        return pii_detected, pii_types, pii_spans
+        text_lower = text.lower()
+        warning = any(keyword in text_lower for keyword in sensitive_keywords)
+        
+        # Détection patterns numériques suspects
+        if re.search(r'\b\d{16}\b', text):  # 16 chiffres = carte bancaire
+            warning = True
+        if re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text):  # Email
+            warning = True
+        if re.search(r'\b(?:\+33|0)[1-9](?:[0-9]{8})\b', text):  # Téléphone français
+            warning = True
+        
+        # Génération résumé simple
+        if not text.strip():
+            if "NSFW" in image_context:
+                summary = "Document visuel contenant du contenu potentiellement sensible. Aucun texte détecté."
+                warning = True
+            else:
+                summary = "Document visuel sans texte détectable. Image analysée avec succès."
+        else:
+            # Résumé basique intelligent
+            if len(text) > 100:
+                first_sentences = '. '.join(text.split('.')[:2]) + '.'
+                summary = f"Document contenant du texte analysé. {first_sentences[:150]}..."
+            else:
+                summary = f"Document court analysé: {text[:100]}..."
+            
+            if warning:
+                summary += " Attention: informations sensibles détectées."
+        
+        logger.info(f"📋 Fallback analyse: warning={warning}")
+        return summary, warning
     
     async def _detect_visual_pii(self, image: np.ndarray, cached_text: str = "") -> List[str]:
         """
-        Détecte les PII visuels avancés:
-        - CARD_PHOTO: carte bancaire (logos + 16 chiffres)
-        - ID_DOC: passeport/carte d'identité (MRZ)
-        - NUDITY: contenu NSFW (modèle ONNX + fallback)
-        
-        Args:
-            image: Image à analyser
-            cached_text: Texte OCR déjà extrait pour éviter la re-extraction
+        Détection visuelle simple - garde juste NSFW
+        Le LLM s'occupe du reste !
         """
         visual_pii = []
         
         try:
-            # Normaliser le format d'image
-            if len(image.shape) == 2:
-                # Image en niveaux de gris - convertir en BGR pour compatibilité
-                work_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-                gray = image  # Déjà en niveaux de gris
-            elif len(image.shape) == 3 and image.shape[2] == 3:
-                # Image BGR standard
-                work_image = image
-                gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            elif len(image.shape) == 3 and image.shape[2] == 4:
-                # Image RGBA - convertir en BGR
-                work_image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
-                gray = cv2.cvtColor(work_image, cv2.COLOR_BGR2GRAY)
-            else:
-                logger.error(f"Format d'image non supporté pour détection PII: {image.shape}")
-                return visual_pii
-            
-            # === 1. DÉTECTION CARTE BANCAIRE ===
-            # Recherche de contours rectangulaires (forme carte)
-            contours, _ = cv2.findContours(gray, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            for contour in contours:
-                # Approximation polygonale
-                epsilon = 0.02 * cv2.arcLength(contour, True)
-                approx = cv2.approxPolyDP(contour, epsilon, True)
-                
-                # Vérifier si c'est un rectangle de taille carte bancaire
-                if len(approx) == 4:
-                    x, y, w, h = cv2.boundingRect(contour)
-                    aspect_ratio = w / h if h > 0 else 0
-                    area = cv2.contourArea(contour)
-                    
-                    # Ratio typique carte bancaire: 1.586 (ISO/IEC 7810 ID-1)
-                    if 1.4 < aspect_ratio < 1.8 and area > 5000:
-                        # Utiliser le texte OCR déjà extrait si possible
-                        if cached_text:
-                            roi_text = cached_text
-                        else:
-                            # Extraire la zone et chercher des patterns carte
-                            roi = work_image[y:y+h, x:x+w] if y+h <= work_image.shape[0] and x+w <= work_image.shape[1] else None
-                            if roi is not None:
-                                roi_text = self._extract_text_ocr(roi)
-                            else:
-                                roi_text = ""
-                        
-                        # Recherche pattern carte (16 chiffres) + logos possibles
-                        if (self.pii_patterns["CARD_NUMBER"].search(roi_text) or
-                            re.search(r'VISA|MASTERCARD|AMERICAN EXPRESS', roi_text.upper())):
-                            visual_pii.append("CARD_PHOTO")
-                            logger.info("💳 Carte bancaire détectée dans l'image")
-                            break
-            
-            # === 2. DÉTECTION DOCUMENT D'IDENTITÉ ===
-            # Utiliser le texte OCR déjà extrait si disponible
-            if cached_text:
-                full_text = cached_text
-            else:
-                # Recherche de motifs MRZ (Machine Readable Zone)
-                full_text = self._extract_text_ocr(work_image)
-            
-            # Pattern MRZ passeport français: P<FRA... (44 caractères)
-            # Pattern MRZ carte ID: I<FRA... (30 caractères)
-            mrz_patterns = [
-                r'P<[A-Z]{3}[A-Z0-9<]{41}',  # Passeport
-                r'I[A-Z]<[A-Z]{3}[A-Z0-9<]{27}',  # Carte ID
-                r'[A-Z]{9}[0-9][A-Z]{3}[0-9]{7}[A-Z][0-9]{7}[A-Z0-9<]{14}[0-9]{2}'  # MRZ ligne 2
-            ]
-            
-            for pattern in mrz_patterns:
-                if re.search(pattern, full_text.replace(' ', '')):
-                    visual_pii.append("ID_DOC")
-                    logger.info("🆔 Document d'identité détecté (MRZ)")
-                    break
-            
-            # === 3. DÉTECTION CONTENU NSFW (Rapide) ===
-            is_nsfw = await self._detect_nsfw_content_fast(work_image)
+            # Juste la détection NSFW rapide
+            is_nsfw = await self._detect_nsfw_content_fast(image)
             if is_nsfw:
-                visual_pii.append("NUDITY")
-                logger.warning("🚨 Contenu NSFW détecté - classification confidentielle")
+                visual_pii.append("NSFW_CONTENT")
+                logger.warning("🚨 Contenu NSFW détecté")
             
         except Exception as e:
-            logger.error(f"❌ Erreur détection PII visuel: {e}")
+            logger.error(f"❌ Erreur détection visuelle: {e}")
         
         return visual_pii
     
-    async def _detect_nsfw_content(self, image: np.ndarray) -> bool:
-        """
-        Détecte le contenu NSFW avec modèle ONNX embarqué
-        Retourne True si score NSFW > 0.85
-        Fallback intelligent si modèle indisponible
-        """
-        try:
-            # === 1. TENTATIVE AVEC MODÈLE ONNX ===
-            nsfw_score = await nsfw_detector.predict_nsfw_score(image)
-            
-            # Seuil strict: 85% comme demandé
-            nsfw_threshold = 0.85
-            is_nsfw = nsfw_score > nsfw_threshold
-            
-            logger.info(f"🔍 Score NSFW ONNX: {nsfw_score:.3f} (seuil: {nsfw_threshold:.2f}) → {'⚠️ NSFW' if is_nsfw else '✅ Safe'}")
-            
-            # Si le modèle a fonctionné, utiliser son résultat
-            if nsfw_score > 0.001:  # Score non-null = modèle a fonctionné
-                return is_nsfw
-            
-            # === 2. FALLBACK: DÉTECTION DE PEAU ===
-            logger.info("🔄 Fallback: analyse des tons chair")
-            
-            # Conversion en HSV pour meilleure détection de peau
-            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-            
-            # Plages de couleurs pour tons chair (plus précises)
-            skin_ranges = [
-                ([0, 48, 80], [20, 255, 255]),      # Teint clair
-                ([0, 50, 50], [15, 200, 200]),      # Teint moyen  
-            ]
-            
-            total_skin_pixels = 0
-            total_pixels = image.shape[0] * image.shape[1]
-            
-            for lower, upper in skin_ranges:
-                lower_skin = np.array(lower, dtype=np.uint8)
-                upper_skin = np.array(upper, dtype=np.uint8)
-                
-                skin_mask = cv2.inRange(hsv, lower_skin, upper_skin)
-                skin_pixels = np.sum(skin_mask > 0)
-                total_skin_pixels += skin_pixels
-            
-            # Éviter le double comptage
-            total_skin_pixels = min(total_skin_pixels, total_pixels)
-            skin_ratio = total_skin_pixels / total_pixels
-            
-            # Seuil fallback plus conservateur (70% pour éviter faux positifs)
-            fallback_threshold = 0.70
-            is_nsfw_fallback = skin_ratio > fallback_threshold
-            
-            logger.info(f"🔍 Fallback tons chair: {skin_ratio:.2%} (seuil: {fallback_threshold:.0%}) → {'⚠️ NSFW' if is_nsfw_fallback else '✅ Safe'}")
-            
-            return is_nsfw_fallback
-            
-        except Exception as e:
-            logger.error(f"❌ Erreur détection NSFW: {e}")
-            return False  # En cas d'erreur, considérer comme safe
-    
     async def _detect_nsfw_content_fast(self, image: np.ndarray) -> bool:
         """
-        Version rapide de détection NSFW - seulement fallback
-        Retourne True si score > 0.85 (seulement analyse tons chair)
+        Utilise le NSFWDetector ONNX développé - BIEN MEILLEUR que l'analyse couleur !
+        Retourne True si score NSFW > 0.6
         """
         try:
-            # === FALLBACK RAPIDE: DÉTECTION DE PEAU ===
-            logger.debug("🔄 Détection NSFW rapide (tons chair uniquement)")
+            # Utiliser le détecteur ONNX sophistiqué déjà développé
+            nsfw_score = await nsfw_detector.predict_nsfw_score(image)
             
-            # Conversion en HSV pour meilleure détection de peau
-            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            # Seuil de détection (0.6 = assez strict)
+            nsfw_threshold = 0.6
+            is_nsfw = nsfw_score > nsfw_threshold
             
-            # Plages de couleurs pour tons chair (optimisées)
+            logger.info(f"🔍 NSFW ONNX: score={nsfw_score:.3f} (seuil: {nsfw_threshold}) → {'⚠️ NSFW' if is_nsfw else '✅ Safe'}")
+            
+            return is_nsfw
+            
+        except Exception as e:
+            logger.warning(f"❌ Erreur NSFWDetector ONNX: {e}")
+            logger.info("🔄 Fallback: détection couleur basique")
+            
+            # Fallback simple si le modèle ONNX échoue
+            return await self._detect_nsfw_fallback_color(image)
+    
+    async def _detect_nsfw_fallback_color(self, image: np.ndarray) -> bool:
+        """
+        Fallback basique par couleur si le modèle ONNX échoue
+        """
+        try:
+            # CORRECTION: Gérer les images en niveaux de gris
+            if len(image.shape) == 2:
+                # Image déjà en niveaux de gris, convertir en BGR d'abord
+                bgr_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            elif len(image.shape) == 3 and image.shape[2] == 3:
+                # Image BGR standard
+                bgr_image = image
+            else:
+                logger.warning(f"Format d'image non supporté pour NSFW fallback: {image.shape}")
+                return False
+            
+            # Conversion en HSV pour détection de peau
+            hsv = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+            
+            # Plages de couleurs pour tons chair
             skin_ranges = [
                 ([0, 48, 80], [20, 255, 255]),      # Teint clair
                 ([0, 50, 50], [15, 200, 200]),      # Teint moyen  
@@ -982,422 +910,186 @@ class VisionAgent:
             total_skin_pixels = min(total_skin_pixels, total_pixels)
             skin_ratio = total_skin_pixels / total_pixels
             
-            # Seuil fallback (75% pour plus de rapidité)
+            # Seuil fallback
             fallback_threshold = 0.75
             is_nsfw_fallback = skin_ratio > fallback_threshold
             
-            logger.debug(f"🔍 NSFW rapide: {skin_ratio:.2%} (seuil: {fallback_threshold:.0%}) → {'⚠️ NSFW' if is_nsfw_fallback else '✅ Safe'}")
+            logger.debug(f"🔍 NSFW Fallback: {skin_ratio:.2%} (seuil: {fallback_threshold:.0%}) → {'⚠️ NSFW' if is_nsfw_fallback else '✅ Safe'}")
             
             return is_nsfw_fallback
             
         except Exception as e:
-            logger.error(f"❌ Erreur détection NSFW rapide: {e}")
-            return False  # En cas d'erreur, considérer comme safe
+            logger.error(f"❌ Erreur détection NSFW fallback: {e}")
+            return False
     
-    async def _generate_summary(self, text: str, visual_context: str = "") -> str:
-        """
-        Génère un résumé intelligent avec LLama-3 local (4-7 phrases max)
-        Fallback automatique si LLM indisponible
-        """
-        try:
-            # Construire un prompt optimisé pour Llama-3
-            prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-Tu es un assistant qui analyse des documents. Génère un résumé concis en français, 4 à 7 phrases maximum, clair et professionnel.
-<|eot_id|><|start_header_id|>user<|end_header_id|>
 
-Document à analyser:
-Texte OCR: {text[:800]}...
-Contexte: {visual_context}
-
-Résumé (4-7 phrases max):
-<|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
-
-            payload = {
-                "messages": [
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 300,
-                "stream": False
-            }
-            
-            # Tentative connexion LLM local
-            response = requests.post(self.llm_url, json=payload, timeout=15)
-            
-            if response.status_code == 200:
-                result = response.json()
-                summary = result['choices'][0]['message']['content'].strip()
-                
-                # Nettoyer le résumé (enlever les tags potentiels)
-                summary = re.sub(r'<\|.*?\|>', '', summary).strip()
-                
-                # Vérifier la longueur (max 7 phrases)
-                sentences = summary.split('.')
-                if len(sentences) > 7:
-                    summary = '. '.join(sentences[:7]) + '.'
-                
-                logger.info("Résumé généré par LLM local")
-                return summary
-            else:
-                logger.warning(f"LLM local indisponible (status: {response.status_code})")
-                return self._fallback_summary(text, visual_context)
-                
-        except requests.exceptions.ConnectionError:
-            logger.warning("LLM local non accessible - utilisation du fallback")
-            return self._fallback_summary(text, visual_context)
-        except Exception as e:
-            logger.error(f"Erreur génération résumé LLM: {e}")
-            return self._fallback_summary(text, visual_context)
     
-    def _fallback_summary(self, text: str, visual_context: str = "") -> str:
+    async def analyze_document(self, args: VisionArgs) -> VisionResponse:
         """
-        Résumé de fallback intelligent sans LLM
-        Génère 4-6 phrases structurées basées sur l'analyse du contenu
-        """
-        if not text.strip():
-            if "PII détectés" in visual_context:
-                return "Document visuel contenant des informations sensibles détectées. Aucun texte lisible extrait par OCR. Traitement avec précaution recommandé."
-            return "Document visuel sans texte détectable par OCR. Format image analysé avec succès."
+        Pipeline INTELLIGENT d'analyse d'image avec détection automatique des capacités
         
-        # Analyse basique du contenu pour classification
-        text_lower = text.lower()
-        doc_type = "document"
-        
-        # Classification automatique
-        if any(word in text_lower for word in ["facture", "invoice", "montant", "tva", "total"]):
-            doc_type = "facture"
-        elif any(word in text_lower for word in ["contrat", "accord", "conditions", "signature"]):
-            doc_type = "contrat"
-        elif any(word in text_lower for word in ["carte", "card", "visa", "mastercard"]):
-            doc_type = "carte bancaire"
-        elif any(word in text_lower for word in ["passeport", "passport", "identité", "identity"]):
-            doc_type = "document d'identité"
-        elif any(word in text_lower for word in ["certificat", "diplôme", "attestation"]):
-            doc_type = "certificat"
-        
-        # Extraire des informations clés
-        key_info = []
-        
-        # Recherche de montants
-        amounts = re.findall(r'(\d+[,.]?\d*)\s*€?', text)
-        if amounts:
-            key_info.append(f"montant principal: {amounts[0]}€")
-        
-        # Recherche de dates
-        dates = re.findall(r'\b(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b', text)
-        if dates:
-            key_info.append(f"date: {dates[0]}")
-        
-        # Recherche de noms (mots en majuscules)
-        names = re.findall(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', text)
-        if names:
-            key_info.append(f"nom: {names[0]}")
-        
-        # Construction du résumé structuré
-        summary_parts = []
-        
-        # Phrase 1: Type et identification
-        summary_parts.append(f"Document de type {doc_type} analysé avec succès.")
-        
-        # Phrase 2: Contenu principal
-        if len(text) > 100:
-            first_part = text[:150].split('.')[-2] if '.' in text[:150] else text[:100]
-            summary_parts.append(f"Contenu principal: {first_part.strip()}.")
-        
-        # Phrase 3: Informations clés
-        if key_info:
-            summary_parts.append(f"Informations extraites: {', '.join(key_info)}.")
-        
-        # Phrase 4: Contexte visuel
-        if visual_context and "PII détectés" in visual_context:
-            summary_parts.append("Attention: informations sensibles détectées dans ce document.")
-        
-        # Phrase 5: Statut OCR
-        if len(text) > 50:
-            summary_parts.append(f"Extraction de texte réussie ({len(text)} caractères).")
-        
-        # Limiter à 6 phrases max
-        final_summary = ' '.join(summary_parts[:6])
-        
-        logger.info("Résumé généré par fallback intelligent")
-        return final_summary
-    
-    def _extract_tags(self, summary: str, pii_types: List[str], extracted_text: str = "") -> List[str]:
-        """
-        Extrait 3-8 tags sémantiques pertinents pour l'indexation et le File Manager
-        Combine les PII détectés, l'analyse du résumé et du texte OCR
-        """
-        tags = set()
-        
-        # === 1. TAGS BASÉS SUR LES PII DÉTECTÉS ===
-        pii_tag_mapping = {
-            "CARD_NUMBER": "banque",
-            "CARD_PHOTO": "banque", 
-            "EMAIL": "contact",
-            "PHONE": "contact",
-            "IBAN": "banque",
-            "SSN": "administratif",
-            "ID_DOC": "identité",
-            "NUDITY": "confidentiel"
-        }
-        
-        for pii_type in pii_types:
-            if pii_type in pii_tag_mapping:
-                tags.add(pii_tag_mapping[pii_type])
-        
-        # === 2. TAGS SÉMANTIQUES DEPUIS LE RÉSUMÉ ===
-        combined_text = f"{summary} {extracted_text}".lower()
-        
-        # Catégories documentaires
-        document_keywords = {
-            # Finances
-            "banque": ["banque", "carte", "credit", "debit", "compte", "iban", "virement"],
-            "facture": ["facture", "invoice", "montant", "tva", "total", "paiement", "due"],
-            "assurance": ["assurance", "police", "sinistre", "garantie", "prime", "couverture"],
-            
-            # Administratif
-            "administratif": ["administration", "officiel", "gouvernement", "mairie", "préfecture"],
-            "contrat": ["contrat", "accord", "conditions", "clause", "signature", "engagement"],
-            "certificat": ["certificat", "diplôme", "attestation", "qualification", "formation"],
-            
-            # Personnel
-            "identité": ["identité", "passeport", "carte", "nationale", "permis", "conduire"],
-            "santé": ["médical", "santé", "docteur", "hôpital", "ordonnance", "traitement"],
-            "travail": ["emploi", "travail", "salaire", "contrat", "entreprise", "poste"],
-            
-            # Autres
-            "voyage": ["voyage", "billet", "réservation", "hôtel", "vol", "transport"],
-            "éducation": ["école", "université", "cours", "étudiant", "formation", "diplôme"],
-            "loisirs": ["sport", "culture", "cinéma", "concert", "événement", "loisir"]
-        }
-        
-        # Recherche de mots-clés avec scoring
-        keyword_scores = {}
-        for category, keywords in document_keywords.items():
-            score = 0
-            for keyword in keywords:
-                # Compte pondéré: résumé x2, texte x1
-                score += combined_text.count(keyword) * 2 if keyword in summary.lower() else 0
-                score += combined_text.count(keyword) if keyword in extracted_text.lower() else 0
-            
-            if score > 0:
-                keyword_scores[category] = score
-        
-        # Ajouter les catégories les mieux scorées
-        sorted_categories = sorted(keyword_scores.items(), key=lambda x: x[1], reverse=True)
-        for category, score in sorted_categories[:4]:  # Max 4 tags sémantiques
-            tags.add(category)
-        
-        # === 3. TAGS SPÉCIAUX SELON LE CONTENU ===
-        # Confidentialité automatique si PII
-        if pii_types:
-            tags.add("confidentiel")
-        
-        # Tag urgent si mots-clés détectés
-        urgent_keywords = ["urgent", "immediate", "expiration", "délai", "échéance"]
-        if any(keyword in combined_text for keyword in urgent_keywords):
-            tags.add("urgent")
-        
-        # Tag numérique si beaucoup de chiffres
-        digit_ratio = sum(1 for c in extracted_text if c.isdigit()) / max(len(extracted_text), 1)
-        if digit_ratio > 0.15:  # Plus de 15% de chiffres
-            tags.add("numérique")
-        
-        # === 4. TAGS DE QUALITÉ OCR ===
-        if len(extracted_text) > 200:
-            tags.add("texte-riche")
-        elif len(extracted_text) < 50 and extracted_text:
-            tags.add("peu-texte")
-        
-        # === 5. LIMITATION ET PRIORITÉ ===
-        # Priorité: confidentiel > PII > sémantiques > qualité
-        priority_order = ["confidentiel", "banque", "identité", "facture", "contrat", 
-                         "administratif", "santé", "urgent", "numérique", "texte-riche"]
-        
-        final_tags = []
-        
-        # Ajouter par ordre de priorité
-        for priority_tag in priority_order:
-            if priority_tag in tags and len(final_tags) < 8:
-                final_tags.append(priority_tag)
-        
-        # Ajouter les autres tags restants
-        for tag in tags:
-            if tag not in final_tags and len(final_tags) < 8:
-                final_tags.append(tag)
-        
-        # Minimum 3 tags, maximum 8
-        if len(final_tags) < 3:
-            # Ajouter des tags génériques si nécessaire
-            generic_tags = ["document", "analysé", "traité"]
-            for generic in generic_tags:
-                if len(final_tags) < 3:
-                    final_tags.append(generic)
-        
-        logger.info(f"Tags extraits: {final_tags}")
-        return final_tags[:8]  # Maximum 8 tags
-    
-    async def analyze_document(self, args: VisionArgs) -> FileMeta:
-        """
-        Pipeline complet d'analyse de document visuel avec détection PII avancée
-        Supporte maintenant les PDF (conversion automatique en images)
-        
-        Étapes:
-        1. Détection format (image vs PDF)
-        2. Chargement/Conversion (PDF → images)
-        3. OCR multilangue sur toutes les pages
-        4. Détection PII textuelle et visuelle combinées
-        5. Génération résumé intelligent global
-        6. Extraction tags sémantiques
-        7. Construction FileMeta final
-        
-        Contrainte: ≤ 1500ms par page A4 300 DPI
+        FLUX ADAPTATIF:
+        1. Test des capacités Vision du LLM 
+        2a. Si LLM Vision → Analyse directe complète
+        2b. Si LLM texte seulement → OCR + Analyse textuelle
+        3. Retour JSON unifié: filepath, summary, warning
         """
         start_time = time.time()
-        logger.info(f"🔍 Début analyse document: {args.path}")
+        print(f"\n🚀 === DÉBUT ANALYSE VISION AGENT INTELLIGENT ===")
+        print(f"📂 Fichier: {args.path}")
+        logger.info(f"🔍 Début analyse adaptative: {args.path}")
         
         try:
-            # === 1. DÉTECTION FORMAT ET CHARGEMENT ===
-            is_pdf = self._is_pdf(args.path)
-            file_type = "pdf" if is_pdf else "image"
-            images = []
+            # === 1. CHARGEMENT IMAGE ===
+            print(f"\n📸 ÉTAPE 1: Chargement de l'image")
+            image = self._load_image(args.path, args.image_bytes)
+            if image is None:
+                print(f"❌ ÉCHEC: Impossible de charger l'image")
+                return VisionResponse(
+                    filepath=args.path,
+                    summary="Impossible de charger l'image - format non supporté ou fichier corrompu",
+                    warning=False
+                )
             
-            if is_pdf:
-                # Traitement PDF
-                logger.info("📄 Document PDF détecté - conversion en cours...")
-                images = self._convert_pdf_to_images(args.path, args.extract_pages)
+            print(f"✅ SUCCÈS: Image chargée - Dimensions: {image.shape}")
+            logger.info(f"📸 Image chargée: {image.shape}")
+            
+            # === 2. DÉTECTION DES CAPACITÉS LLM ===
+            print(f"\n🧠 ÉTAPE 2: Détection des capacités du modèle")
+            
+            # Test connectivité basique
+            if not self.test_llm_connection():
+                print(f"❌ LLM non connecté - Mode fallback complet")
+                summary, warning = self._fallback_analysis("", f"Image {image.shape}")
+                processing_time = time.time() - start_time
                 
-                if not images:
-                    return FileMeta(
-                        path=args.path,
-                        status="error_pdf_conversion",
-                        summary="Impossible de convertir le PDF - pdf2image requis ou PDF corrompu",
-                        file_type="pdf"
-                    )
-            else:
-                # Traitement image standard
-                image = self._load_image(args.path, args.bytes)
-                if image is None:
-                    return FileMeta(
-                        path=args.path,
-                        status="error_load",
-                        summary="Impossible de charger l'image - format non supporté ou fichier corrompu",
-                        file_type="image"
-                    )
-                images = [image]
-            
-            pages_count = len(images)
-            logger.info(f"📸 {pages_count} page(s) à analyser")
-            
-            # === 2. TRAITEMENT MULTI-PAGES ===
-            all_extracted_text = []
-            all_pii_types = []
-            all_pii_spans = []
-            pii_detected = False
-            
-            for page_num, image in enumerate(images, 1):
-                logger.info(f"📄 Analyse page {page_num}/{pages_count}")
+                result = VisionResponse(
+                    filepath=args.path,
+                    summary=summary,
+                    warning=warning
+                )
                 
-                # OCR par page (une seule fois)
-                page_text = self._extract_text_ocr(image)
-                if page_text.strip():
-                    all_extracted_text.append(f"Page {page_num}: {page_text}")
+                print(f"\n🎯 === RÉSULTAT FALLBACK ===")
+                print(f"📁 Filepath: {result.filepath}")
+                print(f"📄 Summary: {result.summary}")
+                print(f"⚠️ Warning: {result.warning}")
+                print(f"⌚ Temps: {processing_time:.2f}s")
+                return result
+            
+            # Test capacités Vision
+            print(f"🔍 Test des capacités Vision du LLM...")
+            has_vision = self.test_llm_vision_capability()
+            
+            if has_vision:
+                # === FLUX A: LLM VISION DIRECT ===
+                print(f"✅ LLM VISION DÉTECTÉ: Analyse directe complète!")
+                print(f"🎯 Mode: Vision LLM (optimal)")
                 
-                # PII textuelle par page
-                page_pii_detected, page_pii_types, page_pii_spans = self._detect_text_pii(page_text)
-                if page_pii_detected:
-                    pii_detected = True
-                    all_pii_types.extend(page_pii_types)
+                try:
+                    summary, warning = await self._analyze_image_with_vision_llm(image, args.path)
+                    print(f"✅ ANALYSE VISION LLM RÉUSSIE")
                     
-                    # Ajuster les positions pour le texte global
-                    text_offset = sum(len(t) + 1 for t in all_extracted_text[:-1]) if all_extracted_text else 0
-                    for span in page_pii_spans:
-                        adjusted_span = PIISpan(
-                            start=span.start + text_offset,
-                            end=span.end + text_offset,
-                            label=span.label
-                        )
-                        all_pii_spans.append(adjusted_span)
-                
-                # PII visuelle par page (réutiliser le texte OCR déjà extrait)
-                visual_pii = await self._detect_visual_pii(image, page_text)
-                if visual_pii:
-                    pii_detected = True
-                    all_pii_types.extend(visual_pii)
-                    logger.info(f"👁️  Page {page_num} - PII visuels: {', '.join(visual_pii)}")
+                    processing_time = time.time() - start_time
+                    result = VisionResponse(
+                        filepath=args.path,
+                        summary=summary,
+                        warning=warning
+                    )
+                    
+                    print(f"\n🎯 === RÉSULTAT VISION LLM ===")
+                    print(f"📁 Filepath: {result.filepath}")
+                    print(f"📄 Summary: {result.summary}")
+                    print(f"⚠️ Warning: {result.warning}")
+                    print(f"⌚ Temps: {processing_time:.2f}s")
+                    print(f"🏁 === FIN ANALYSE VISION ===\n")
+                    
+                    logger.info(f"🎯 Vision LLM terminé en {processing_time:.2f}s")
+                    return result
+                    
+                except Exception as vision_error:
+                    print(f"❌ Vision LLM échoué: {vision_error}")
+                    print(f"🔄 Fallback vers OCR classique...")
+                    logger.warning(f"Vision LLM échec, fallback OCR: {vision_error}")
+                    # Continuer vers flux OCR
             
-            # === 3. CONSOLIDATION RÉSULTATS ===
-            # Texte global
-            full_extracted_text = "\n".join(all_extracted_text)
-            text_length = len(full_extracted_text)
-            
-            # PII globaux (dédoublonnés)
-            unique_pii_types = list(set(all_pii_types))
-            
-            logger.info(f"📝 OCR total: {text_length} caractères sur {pages_count} page(s)")
-            if pii_detected:
-                logger.info(f"⚠️  PII détectés: {', '.join(unique_pii_types)}")
-            
-            # === 4. GÉNÉRATION RÉSUMÉ GLOBAL ===
-            visual_context = f"{file_type.upper()} {pages_count} page(s)"
-            if unique_pii_types:
-                visual_context += f", PII détectés: {', '.join(unique_pii_types)}"
-            if text_length == 0:
-                visual_context += ", aucun texte OCR"
-            
-            summary = await self._generate_summary(full_extracted_text, visual_context)
-            
-            # === 5. EXTRACTION TAGS GLOBAUX ===
-            tags = self._extract_tags(summary, unique_pii_types, full_extracted_text)
-            
-            # Ajouter tag PDF si applicable
-            if is_pdf:
-                if "pdf" not in tags:
-                    tags.append("pdf")
-                if pages_count > 1:
-                    tags.append("multi-pages")
-            
-            # === 6. MÉTRIQUES DE PERFORMANCE ===
-            processing_time = time.time() - start_time
-            avg_time_per_page = processing_time / pages_count
-            
-            # Vérification contrainte de latence par page
-            if avg_time_per_page > 1.5:
-                logger.warning(f"⏰ Latence par page dépassée: {avg_time_per_page:.2f}s > 1.5s")
             else:
-                logger.info(f"✅ Analyse terminée en {processing_time:.2f}s ({avg_time_per_page:.2f}s/page)")
+                print(f"📝 LLM TEXTE SEULEMENT: Mode OCR classique")
+                print(f"🎯 Mode: OCR + LLM textuel")
             
-            # === 7. CONSTRUCTION RÉSULTAT FINAL ===
-            result = FileMeta(
-                path=args.path,
-                source="vision",
-                text=full_extracted_text,
+            # === FLUX B: OCR CLASSIQUE + LLM TEXTUEL ===
+            print(f"\n📝 ÉTAPE 3: Extraction OCR du texte")
+            extracted_text = self._extract_text_ocr(image)
+            text_length = len(extracted_text)
+            print(f"✅ SUCCÈS: OCR terminé - {text_length} caractères extraits")
+            if text_length > 0:
+                print(f"📋 Aperçu texte: '{extracted_text[:100]}{'...' if len(extracted_text) > 100 else ''}'")
+            else:
+                print(f"⚠️ Aucun texte détecté dans l'image")
+            logger.info(f"📝 OCR: {text_length} caractères extraits")
+            
+            # === CONTEXTE VISUEL ===
+            print(f"\n🖼️ ÉTAPE 4: Préparation du contexte visuel")
+            image_context = f"Image {image.shape[1]}x{image.shape[0]} pixels"
+            if text_length == 0:
+                image_context += ", aucun texte détecté"
+            else:
+                image_context += f", {text_length} caractères de texte"
+            
+            # Détection NSFW
+            try:
+                is_nsfw = await self._detect_nsfw_content_fast(image)
+                if is_nsfw:
+                    image_context += ", contenu NSFW potentiel détecté"
+                    print(f"⚠️ Détection NSFW: Potentiel contenu sensible")
+                else:
+                    print(f"✅ Détection NSFW: Contenu sûr")
+            except:
+                print(f"⚠️ Détection NSFW: Échec (pas critique)")
+                pass
+            
+            print(f"📊 Contexte final: {image_context}")
+            
+            # === ANALYSE LLM TEXTUEL ===
+            print(f"\n🧠 ÉTAPE 5: Analyse LLM textuelle")
+            
+            if text_length > 0:
+                print(f"📝 Analyse du texte extrait...")
+                summary, warning = await self._analyze_with_llm(extracted_text, image_context)
+                print(f"✅ ANALYSE LLM TEXTUEL RÉUSSIE")
+            else:
+                print(f"📝 Pas de texte → Analyse fallback")
+                summary, warning = self._fallback_analysis(extracted_text, image_context)
+                print(f"⚠️ ANALYSE FALLBACK UTILISÉE")
+            
+            # === RÉSULTAT FINAL ===
+            processing_time = time.time() - start_time
+            result = VisionResponse(
+                filepath=args.path,
                 summary=summary,
-                tags=tags[:8],  # Limiter à 8 tags max
-                pii_detected=pii_detected,
-                pii_types=unique_pii_types,
-                pii_spans=all_pii_spans,
-                status="ok",
-                pages_processed=pages_count,
-                file_type=file_type
+                warning=warning
             )
             
-            # Log résumé final
-            logger.info(f"📊 Résultat {file_type.upper()}: {len(result.pii_types)} types PII, {len(result.tags)} tags, {pages_count} page(s)")
+            print(f"\n🎯 === RÉSULTAT FINAL OCR+LLM ===")
+            print(f"📁 Filepath: {result.filepath}")
+            print(f"📄 Summary: {result.summary}")
+            print(f"⚠️ Warning: {result.warning}")
+            print(f"⌚ Temps: {processing_time:.2f}s")
+            print(f"🏁 === FIN ANALYSE ===\n")
             
+            logger.info(f"📊 OCR+LLM terminé en {processing_time:.2f}s")
             return result
             
         except Exception as e:
             processing_time = time.time() - start_time
-            error_msg = f"Erreur lors de l'analyse: {str(e)}"
+            error_msg = f"Erreur analyse: {str(e)}"
+            print(f"\n❌ ERREUR CRITIQUE: {error_msg}")
+            print(f"⌚ Temps avant erreur: {processing_time:.2f}s")
             logger.error(f"❌ {error_msg} (après {processing_time:.2f}s)")
             
-            return FileMeta(
-                path=args.path,
-                status="error_processing",
+            return VisionResponse(
+                filepath=args.path,
                 summary=error_msg,
-                tags=["erreur", "non-traité"],
-                file_type=file_type if 'file_type' in locals() else "unknown"
+                warning=False
             )
 
 # === AGENT ET TOOL CORAL ===
@@ -1436,123 +1128,114 @@ def get_global_ocr_reader():
 # Agent Coral
 vision_agent = Agent(
     name="vision",
-    description="Agent d'analyse de fichiers visuels avec détection PII avancée - 100% offline",
+    description="Agent d'analyse de fichiers images avec détection PII avancée - 100% offline",
     tools=["analyze_document"]
 )
 
 # Tool function pour Coral (entrée principale)
-async def analyze_document(args: VisionArgs) -> FileMeta:
+async def analyze_document(args: VisionArgs) -> VisionResponse:
     """
-    Tool Coral pour analyser un document visuel
+    Tool Coral pour analyser une image avec LLM intelligent
     
     Args:
         args.path: Chemin vers le fichier image
-        args.bytes: Données binaires optionnelles (fallback)
+        args.image_bytes: Données binaires optionnelles (fallback)
     
     Returns:
-        FileMeta: Métadonnées complètes avec texte, résumé, tags et PII détectés
+        VisionResponse: JSON simple avec filepath, summary, warning
     """
     return await vision_agent_instance.analyze_document(args)
 
 # === TESTS ET DÉMONSTRATION ===
 
 if __name__ == "__main__":
-    async def test_vision_complete():
+    # === DIAGNOSTIC SYSTÈME AUTOMATIQUE AU DÉMARRAGE ===
+    print("🔧 Vérification des dépendances système...")
+    system_ready = diagnose_system_dependencies()
+    
+    if not system_ready:
+        print("\n⚠️ ATTENTION: Des dépendances manquent. Veuillez les installer avant de continuer.")
+        print("L'agent peut fonctionner partiellement, mais certaines fonctionnalités pourraient échouer.\n")
+    else:
+        print("\n🎉 Système optimal détecté ! Agent Vision prêt à fonctionner.\n")
+    
+    async def test_vision_llm():
         """
-        Test complet de l'agent Vision avec validation détection NSFW
+        Test de l'agent Vision avec LLM intelligent
         """
-        print("🚀 Test complet Agent Vision Neurosort + NSFW")
-        print("=" * 55)
+        print("🤖 Test Agent Vision LLM - 3 attributs JSON")
+        print("=" * 45)
         
-        # === TEST 1: FACTURE AVEC PII ===
-        print("\n📋 Test 1: Analyse facture avec PII")
-        test_path = "test_facture.jpg"
+        # === TEST 1: DOCUMENT AVEC CONTENU SENSIBLE ===
+        print("\n📋 Test 1: Document potentiellement sensible")
         
-        if Path(test_path).exists():
-            args = VisionArgs(path=test_path)
+        # Créer image test avec du texte sensible
+        test_image = np.zeros((300, 400, 3), dtype=np.uint8)
+        test_image.fill(255)  # Fond blanc
+        
+        # Ajouter du texte sensible simulé
+        cv2.putText(test_image, "CARTE BANCAIRE", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        cv2.putText(test_image, "4532 1234 5678 9012", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        cv2.putText(test_image, "john.doe@email.com", (50, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv2.putText(test_image, "06 12 34 56 78", (50, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        
+        # Utiliser Path pour cross-platform
+        test_file = Path("test_sensitive.jpg")
+        cv2.imwrite(str(test_file), test_image)
+        
+        if test_file.exists():
+            args = VisionArgs(path=str(test_file.resolve()))
             result = await analyze_document(args)
             
-            print(f"✅ Statut: {result.status}")
-            print(f"📝 Texte: {result.text[:100]}...")
-            print(f"📄 Résumé: {result.summary[:150]}...")
-            print(f"🏷️  Tags: {result.tags}")
-            print(f"⚠️  PII détectés: {result.pii_detected}")
-            print(f"🔍 Types PII: {result.pii_types}")
-            print(f"📍 Spans PII: {len(result.pii_spans)} détectés")
+            print(f"📁 Filepath: {result.filepath}")
+            print(f"📄 Summary: {result.summary}")
+            print(f"⚠️  Warning: {result.warning}")
+            print(f"🎯 JSON: {result.dict()}")
         else:
-            print("❌ Fichier facture test non trouvé")
+            print("❌ Impossible de créer l'image de test")
         
-        # === TEST PDF ===
-        print("\n📋 Test PDF: Analyse document multi-pages")
-        test_pdf = "test_document.pdf"
+        # === TEST 2: DOCUMENT NORMAL ===
+        print("\n📋 Test 2: Document normal (pas sensible)")
         
-        if Path(test_pdf).exists():
-            args_pdf = VisionArgs(path=test_pdf)
-            result_pdf = await analyze_document(args_pdf)
-            
-            print(f"✅ Statut PDF: {result_pdf.status}")
-            print(f"📄 Type: {result_pdf.file_type}")
-            print(f"📄 Pages: {result_pdf.pages_processed}")
-            print(f"📝 Texte: {result_pdf.text[:200]}...")
-            print(f"🏷️  Tags: {result_pdf.tags}")
-            print(f"⚠️  PII détectés: {result_pdf.pii_detected}")
-        else:
-            print("❌ Fichier PDF test non trouvé")
+        normal_image = np.zeros((200, 300, 3), dtype=np.uint8)
+        normal_image.fill(240)  # Fond gris clair
+        cv2.putText(normal_image, "FACTURE NORMALE", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        cv2.putText(normal_image, "Produit: Livre", (30, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv2.putText(normal_image, "Prix: 15.99 EUR", (30, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+        cv2.putText(normal_image, "Date: 01/01/2025", (30, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
         
-        # === TEST 2: VALIDATION NSFW ===
-        print("\n📋 Test 2: Validation détection NSFW")
+        # Utiliser Path pour cross-platform
+        normal_file = Path("test_normal.jpg")
+        cv2.imwrite(str(normal_file), normal_image)
         
-        # Générer images de test si besoin
-        try:
-            # Créer une image safe de test
-            safe_image = np.zeros((200, 300, 3), dtype=np.uint8)
-            safe_image.fill(100)  # Gris neutre
-            cv2.putText(safe_image, "DOCUMENT SAFE", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            cv2.imwrite("test_safe.jpg", safe_image)
+        if normal_file.exists():
+            args = VisionArgs(path=str(normal_file.resolve()))
+            result = await analyze_document(args)
             
-            # Test image safe
-            args_safe = VisionArgs(path="test_safe.jpg")
-            result_safe = await analyze_document(args_safe)
-            
-            nsfw_detected_safe = "NUDITY" in result_safe.pii_types
-            print(f"   🖼️  Image safe: {'❌ Faux positif' if nsfw_detected_safe else '✅ Correctement classée'}")
-            
-            # Créer une image avec beaucoup de tons chair
-            nsfw_image = np.zeros((200, 300, 3), dtype=np.uint8)
-            # Remplir avec tons chair (couleur BGR qui donne HSV dans plage peau)
-            nsfw_image[:, :] = [150, 180, 220]  # Ton chair dominant
-            cv2.imwrite("test_nsfw_sim.jpg", nsfw_image)
-            
-            # Test image nsfw simulée
-            args_nsfw = VisionArgs(path="test_nsfw_sim.jpg")
-            result_nsfw = await analyze_document(args_nsfw)
-            
-            nsfw_detected_nsfw = "NUDITY" in result_nsfw.pii_types
-            print(f"   🔥 Image NSFW sim: {'✅ Correctement détectée' if nsfw_detected_nsfw else '❌ Non détectée'}")
-            
-            # Statistiques
-            print(f"\n📊 Résultats validation NSFW:")
-            print(f"   Safe → NSFW: {'❌' if nsfw_detected_safe else '✅'}")
-            print(f"   NSFW → NSFW: {'✅' if nsfw_detected_nsfw else '❌'}")
-            print(f"   Précision: {int(not nsfw_detected_safe and nsfw_detected_nsfw) * 100}%")
-            
-        except Exception as e:
-            print(f"❌ Erreur test NSFW: {e}")
+            print(f"📁 Filepath: {result.filepath}")
+            print(f"� Summary: {result.summary}")
+            print(f"⚠️  Warning: {result.warning}")
+            print(f"🎯 JSON: {result.dict()}")
         
-        # === TEST 3: PERFORMANCE ET ROBUSTESSE ===
-        print("\n📋 Test 3: Performance et robustesse")
+        # === TEST 3: IMAGE SANS TEXTE ===
+        print("\n📋 Test 3: Image sans texte")
         
-        # Test fichier inexistant
-        args_missing = VisionArgs(path="fichier_inexistant.jpg")
-        result_missing = await analyze_document(args_missing)
-        print(f"📂 Fichier manquant: {result_missing.status}")
+        empty_image = np.random.randint(0, 255, (150, 200, 3), dtype=np.uint8)
         
-        # Test modèle NSFW
-        print(f"🧠 Modèle NSFW ONNX: {'✅ Disponible' if ONNX_AVAILABLE else '❌ Fallback only'}")
-        print(f"� Support PDF: {'✅ Disponible' if PDF_AVAILABLE else '❌ Installez pdf2image'}")
-        print(f"�📂 Dossier modèles: {Path('ai_models/nsfw').exists()}")
+        # Utiliser Path pour cross-platform
+        empty_file = Path("test_empty.jpg")
+        cv2.imwrite(str(empty_file), empty_image)
         
-        print(f"\n🎯 Pipeline complet testé avec support PDF + NSFW!")
+        if empty_file.exists():
+            args = VisionArgs(path=str(empty_file.resolve()))
+            result = await analyze_document(args)
+            
+            print(f"� Filepath: {result.filepath}")
+            print(f"📄 Summary: {result.summary}")
+            print(f"⚠️  Warning: {result.warning}")
+            print(f"🎯 JSON: {result.dict()}")
+        
+        print(f"\n🎯 Test terminé ! LLM fait toute l'intelligence 🧠")
     
     # Lancer les tests
-    asyncio.run(test_vision_complete())
+    asyncio.run(test_vision_llm())
