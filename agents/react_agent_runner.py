@@ -35,8 +35,7 @@ Usage Examples:
     # Process audio in Spanish
     python react_agent_runner.py reunion.mp3 es
 """
-
-from audio_transcript_processor import AudioSummaryAgent
+from utils.audio_transcript_processor import AudioSummaryAgent
 from langchain.tools import tool
 from langchain.agents import Tool, create_react_agent, AgentExecutor
 from langchain_ollama import OllamaLLM

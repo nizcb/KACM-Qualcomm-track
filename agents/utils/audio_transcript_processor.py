@@ -3,17 +3,15 @@ audio_summary_agent.py
 
 Detailed Explanation:
 ---------------------
-This script provides a complete audio processing pipeline that transcribes audio files, indexes them in a vector database, and generates AI-powered summaries with security analysis. It combines Whisper for transcription, ChromaDB for semantic search, and LLaMA for intelligent content analysis.
+This script provides a complete audio processing pipeline that transcribes audio files, indexes them in a vector database, and generates AI-powered summaries with security analysis. It combines Whisper for transcription and LLaMA for intelligent content analysis.
 
 How it works:
 - Transcribes audio files using OpenAI's Whisper model (with GPU acceleration if available)
-- Stores transcripts and metadata in a local ChromaDB vector database for semantic search
 - Uses LLaMA (via Ollama) to generate summaries and analyze content for security-sensitive information
 - Saves all results (transcripts, metadata, summaries) to the data/audio/ directory
 
 Dependencies:
 - whisper: For speech-to-text transcription (pip install openai-whisper)
-- chromadb: Vector database for storing and searching embeddings (pip install chromadb)
 - torch: For running Whisper with GPU acceleration (pip install torch)
 - spacy: For natural language processing (pip install spacy)
 - ollama: For running LLaMA models locally (install from https://ollama.ai/)
@@ -38,15 +36,12 @@ Usage Examples:
 """
 
 # Import required libraries
-import chromadb  # Vector database for semantic search
-from chromadb.utils import embedding_functions  # Default embedding functions
 import subprocess  # For running external commands (Ollama)
 import json  # For JSON file handling
 import os  # For file and directory operations
 import re  # For regular expression matching
 import whisper  # OpenAI's speech-to-text model
 import torch  # PyTorch for GPU acceleration
-import spacy  # Natural language processing library
 
 class AudioSummaryAgent:
     """
@@ -54,35 +49,21 @@ class AudioSummaryAgent:
     
     This class provides a complete pipeline for:
     - Audio transcription using Whisper
-    - Vector database storage using ChromaDB
     - AI-powered content analysis using LLaMA
     """
     
-    def __init__(self, db_path="chroma_db", data_path="data/audio", collection_name="audio_transcripts"):
+    def __init__(self, data_path="data/audio"):
         """
         Initialize the AudioSummaryAgent with necessary components.
         
         Args:
-            db_path (str): Path to ChromaDB database directory
             data_path (str): Path to store audio transcripts and metadata
-            collection_name (str): Name of the ChromaDB collection
         """
         # Store configuration paths
-        self.db_path = db_path
         self.data_path = data_path
-        self.collection_name = collection_name
 
         # Create data directory if it doesn't exist
         os.makedirs(self.data_path, exist_ok=True)
-
-        # Initialize ChromaDB client with persistent storage
-        self.client = chromadb.PersistentClient(path=db_path)
-        
-        # Get or create the collection for audio transcripts
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            embedding_function=embedding_functions.DefaultEmbeddingFunction()  # Use default embeddings
-        )
 
         # Initialize Whisper model with GPU support if available
         self.device = "cuda" if torch.cuda.is_available() else "cpu"  # Check for GPU availability
@@ -100,9 +81,6 @@ class AudioSummaryAgent:
             print("⚠️ Running on CPU - GPU acceleration not available")
         # Existing models: "tiny", "base", "small", "medium", or "large"
         self.whisper_model = whisper.load_model("medium").to(self.device)  # Load medium model and move to device
-
-        # Initialize spaCy NLP model for text processing
-        self.nlp = spacy.load("en_core_web_sm")
 
     def transcribe_audio(self, audio_path, forced_lang=None):
         """
@@ -123,17 +101,8 @@ class AudioSummaryAgent:
         
         # Extract transcript text from result
         transcript = result["text"]
-
         # Generate base filename without extension for file naming
         base = os.path.splitext(os.path.basename(audio_path))[0]
-        
-        # Define output file paths
-        txt_path = os.path.join(self.data_path, f"{base}.transcript.txt")  # Transcript text file
-        json_path = os.path.join(self.data_path, f"{base}.metadata.json")  # Metadata JSON file
-
-        # Save transcript text to file
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(transcript)
 
         # Create metadata dictionary with file info
         metadata = {
@@ -141,34 +110,8 @@ class AudioSummaryAgent:
             "language": result.get("language", "unknown"),  # Detected language
             "transcript": transcript  # Full transcript text
         }
-
-        # Save metadata as JSON file
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2, ensure_ascii=False)  # Pretty print with UTF-8 support
-
         # Return document ID, transcript, and metadata
         return base, transcript, metadata
-
-    def index_transcript(self, doc_id, transcript, metadata):
-        """
-        Add or update a transcript in the ChromaDB collection.
-        
-        Args:
-            doc_id (str): Unique identifier for the document
-            transcript (str): Full transcript text
-            metadata (dict): Document metadata
-        """
-        # Upsert document into ChromaDB collection
-        self.collection.upsert(
-            documents=[transcript],  # Document text for embedding
-            ids=[doc_id],  # Unique document identifier
-            metadatas=[{  # Metadata to store alongside
-                "filepath": metadata["filepath"],
-                "language": metadata["language"]
-            }]
-        )
-        # Confirm successful indexing
-        print(f"✅ Indexed {doc_id} into ChromaDB")
 
     def summarize_from_audio(self, audio_path: str, forced_lang=None, model_name="llama3.1:8b") -> dict:
         """
@@ -185,10 +128,7 @@ class AudioSummaryAgent:
         # Step 1: Transcribe the audio file
         doc_id, transcript, metadata = self.transcribe_audio(audio_path, forced_lang)
         
-        # Step 2: Index the transcript in ChromaDB
-        self.index_transcript(doc_id, transcript, metadata)
-        
-        # Step 3: Generate summary using LLaMA
+        # Step 2: Generate summary using LLaMA
         return self._run_llama(doc_id, transcript, metadata, model_name)
 
     def _run_llama(self, doc_id, transcript, metadata, model_name):
@@ -279,7 +219,7 @@ and make sure the filepath is correctly formatted with double backslashes (\\) f
                 raise ValueError("No JSON found in LLaMA output.")
 
             # Save LLaMA summary to file
-            llama_path = os.path.join(self.data_path, f"{doc_id}.llama_summary.json")
+            llama_path = os.path.join(self.data_path, f"{doc_id}.metadata.json")
             with open(llama_path, "w", encoding="utf-8") as f:
                 json.dump(llama_json, f, indent=2, ensure_ascii=False)  # Pretty print with UTF-8
 
