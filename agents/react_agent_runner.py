@@ -72,7 +72,7 @@ def summarize_audio(input_string: str) -> str:
                            (e.g., "audio.mp3" or "audio.mp3,en")
     
     Returns:
-        str: Formatted string containing summary, protection status, reason, and filepath
+        str: Formatted string containing summary, warning status, and filepath
     """
     # Parse input string to extract file path and optional language code
     input_string = input_string.strip().strip("'").strip('"')
@@ -87,8 +87,7 @@ def summarize_audio(input_string: str) -> str:
         # Format the result clearly for the agent
         return f"""AUDIO ANALYSIS COMPLETE:
 Summary: {result['summary']}
-Protect: {result['protect']}
-Reason: {result['reason']}
+Warning: {result['warning']}
 Filepath: {result['filepath']}
 
 TASK FINISHED - Provide Final Answer now."""

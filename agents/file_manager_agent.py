@@ -66,7 +66,7 @@ Folder name:
         """
         Process data/{modality}:
         - For each *.metadata.json
-        - Extract summary & protect flag
+        - Extract summary & warning flag
         - Infer topic folder name
         - Move media + metadata into public/topic/ or secure/topic/
         - Return a record list
@@ -77,14 +77,14 @@ Folder name:
         for meta_path in folder.glob("*.metadata.json"):
             data    = self.load_json(meta_path)
             summary = data.get("summary", "")
-            protect = data.get("protect", False)
+            warning = data.get("warning", False)
             base    = meta_path.stem
 
             # Step 1: infer topic name
             topic = self.infer_topic(summary)
 
             # Step 2: choose target
-            root = self.secure_dir if protect else self.public_dir
+            root = self.secure_dir if warning else self.public_dir
             target = root / topic
             target.mkdir(parents=True, exist_ok=True)
 
@@ -104,8 +104,7 @@ Folder name:
                 "base":      base,
                 "modality":  modality,
                 "topic":     topic,
-                "protect":   protect,
-                "reason":    data.get("reason", ""),
+                "warning":   warning,
                 "orig_path": str(moved.resolve()) if moved else None,
                 "meta_path": str(dest_meta.resolve())
             }

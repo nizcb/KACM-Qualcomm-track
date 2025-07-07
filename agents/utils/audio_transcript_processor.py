@@ -172,9 +172,7 @@ Return your response as a valid JSON object in this format:
 
 {{
   "summary": "<A concise summary of the transcript in no more than 6 lines>",
-  "contains_pii": false,
-  "protect": false,
-  "reason": "<Explain why protection is or isn't needed>",
+  "warning": false,
   "filepath": "{metadata['filepath']}"
 }}
 
@@ -194,9 +192,7 @@ and make sure the filepath is correctly formatted with double backslashes (\\) f
         except (subprocess.CalledProcessError, FileNotFoundError):
             return {
                 "summary": None,
-                "contains_pii": None,
-                "protect": None,
-                "reason": "Ollama is not installed or not in PATH. Please install Ollama from https://ollama.ai/",
+                "warning": None,
                 "filepath": metadata['filepath']
             }
         
@@ -230,8 +226,6 @@ and make sure the filepath is correctly formatted with double backslashes (\\) f
             # Return error information if parsing fails
             return {
                 "summary": None,
-                "contains_pii": None,
-                "protect": None,
-                "reason": f"Failed to parse LLaMA output: {e}",
+                "warning": None,
                 "filepath": metadata['filepath']
             }
