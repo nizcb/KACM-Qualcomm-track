@@ -1,4 +1,4 @@
-# Enterprise File Auto-Organization System
+# NeuroSort : File Auto-Organization System
 
 ## 📋 Project Description
 
