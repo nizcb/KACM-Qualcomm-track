@@ -52,7 +52,7 @@ from io import BytesIO
 try:
     if not hasattr(Image, 'ANTIALIAS'):
         Image.ANTIALIAS = Image.LANCZOS
-        print("✅ Fix PIL ANTIALIAS appliqué")
+        print("✅ PIL ANTIALIAS fix applied")
 except AttributeError:
     pass
 
@@ -111,11 +111,11 @@ if LANGCHAIN_AVAILABLE:
         )
         # Test de connexion
         test_response = llm.invoke("Test vision")
-        logger.info("✅ Ollama/Llama Vision connecté avec succès")
+        logger.info("✅ Ollama/Llama Vision connected successfully")
         print("✅ Agent Vision IA Ollama/Llama prêt")
     except Exception as e:
-        logger.warning(f"⚠️ Connexion Ollama échouée: {e}")
-        print(f"⚠️ Connexion Ollama échouée: {e}")
+        logger.warning(f"⚠️ Ollama connection failed: {e}")
+        print(f"⚠️ Ollama connection failed: {e}")
         llm = None
 
 # Regex patterns pour la détection PII dans le texte OCR
@@ -143,7 +143,7 @@ class VisionArgs(BaseModel):
     image_bytes: Optional[bytes] = None
 
 class VisionResponse(BaseModel):
-    """Réponse simplifiée de l'agent Vision - 3 attributs seulement"""
+    """Simplified Vision agent response - 3 attributes only"""
     filepath: str
     summary: str
     warning: bool  # True = contient des informations sensibles
@@ -162,13 +162,13 @@ class NSFWDetector:
         self.lock = threading.Lock()
         
     def _load_model(self) -> bool:
-        """Charge le modèle ONNX (chargement paresseux)"""
+        """Loads ONNX model (lazy loading)"""
         if not ONNX_AVAILABLE:
-            logger.warning("ONNX Runtime non disponible - utilisation fallback détection NSFW")
+            logger.warning("ONNX Runtime not available - using NSFW detection fallback")
             return False
             
         if not self.model_path.exists():
-            logger.warning(f"Modèle NSFW non trouvé: {self.model_path}")
+            logger.warning(f"NSFW model not found: {self.model_path}")
             return False
             
         try:
@@ -180,7 +180,7 @@ class NSFWDetector:
                 available_providers = ort.get_available_providers()
                 if 'QNNExecutionProvider' in available_providers:
                     providers.insert(0, 'QNNExecutionProvider')
-                    logger.info("🚀 NPU Qualcomm détecté pour NSFW")
+                    logger.info("🚀 Qualcomm NPU detected for NSFW")
                     
             self.session = ort.InferenceSession(
                 str(self.model_path),
@@ -191,11 +191,11 @@ class NSFWDetector:
             self.input_name = self.session.get_inputs()[0].name
             self.output_name = self.session.get_outputs()[0].name
             
-            logger.info(f"✅ Modèle NSFW chargé: {self.model_path}")
+            logger.info(f"✅ NSFW model loaded: {self.model_path}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Erreur chargement modèle NSFW: {e}")
+            logger.error(f"❌ Error loading NSFW model: {e}")
             return False
     
     def _preprocess_image(self, image: np.ndarray) -> np.ndarray:
@@ -253,7 +253,7 @@ class NSFWDetector:
                     return max(0.0, min(1.0, nsfw_score))  # Clamp [0, 1]
                     
                 except Exception as e:
-                    logger.error(f"❌ Erreur inférence NSFW: {e}")
+                    logger.error(f"❌ NSFW inference error: {e}")
                     return 0.0
         
         # Exécuter en arrière-plan pour ne pas bloquer l'async
@@ -279,7 +279,7 @@ def diagnose_system_dependencies():
     architecture = platform.machine()
     python_version = sys.version
     
-    print(f"\n🔍 DIAGNOSTIC SYSTÈME - VisionAgent Cross-Platform")
+    print(f"\n🔍 SYSTEM DIAGNOSTIC - VisionAgent Cross-Platform")
     print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     print(f"🖥️  OS: {system} ({architecture})")
     print(f"🐍 Python: {python_version}")
@@ -292,14 +292,14 @@ def diagnose_system_dependencies():
         env_type = "Virtual Environment"
         env_path = Path(sys.prefix)
     else:
-        env_type = "Système Global"
+        env_type = "Global System"
         env_path = Path(sys.prefix)
     
     print(f"📦 Environnement: {env_type}")
     print(f"📁 Chemin: {env_path}")
     
     # Vérification des dépendances Python
-    print(f"\n📚 DÉPENDANCES PYTHON:")
+    print(f"\n📚 PYTHON DEPENDENCIES:")
     print(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     
     required_packages = {
@@ -331,7 +331,7 @@ def diagnose_system_dependencies():
         else:
             print(f"   pip install {' '.join(missing_packages)}")
     else:
-        print(f"\n✅ SYSTÈME PRÊT - Toutes les dépendances sont installées !")
+        print(f"\n✅ SYSTEM READY - All dependencies are installed!")
     
     print(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     return len(missing_packages) == 0
@@ -340,14 +340,14 @@ class VisionAgent:
     """Agent Vision pour analyse de documents visuels avec LLM intelligent"""
     
     def __init__(self):
-        """Initialise l'agent avec les modèles nécessaires"""
+        """Initializes agent with necessary models"""
         self.ocr_reader = None
         self.llm_url = "http://localhost:11434/v1/chat/completions"  # Ollama local
         
-        logger.info("Agent Vision initialisé - Mode LLM intelligent")
+        logger.info("Vision Agent initialized - Intelligent LLM mode")
     
     def test_llm_connection(self) -> bool:
-        """Test rapide de connectivité LLM"""
+        """Quick LLM connectivity test"""
         try:
             test_payload = {
                 "messages": [{"role": "user", "content": "Hello"}],
@@ -355,7 +355,7 @@ class VisionAgent:
             }
             response = requests.post(self.llm_url, json=test_payload, timeout=5)
             if response.status_code == 200:
-                logger.info(f"✅ LLM connecté: {self.llm_url}")
+                logger.info(f"✅ LLM connected: {self.llm_url}")
                 return True
             else:
                 logger.warning(f"❌ LLM erreur {response.status_code}: {self.llm_url}")
@@ -402,7 +402,7 @@ class VisionAgent:
                 
                 # Vérifier si la réponse contient du texte relatif à l'image
                 if any(word in response_text for word in ['test', 'text', 'word', 'image', 'see']):
-                    logger.info("🎯 LLM Vision DÉTECTÉ: Le modèle peut analyser les images directement!")
+                    logger.info("🎯 LLM Vision DETECTED: The model can analyze images directly!")
                     return True
                 else:
                     logger.info(f"📝 LLM Vision partiel: réponse='{response_text}' (non concluant)")
@@ -1267,7 +1267,7 @@ def get_global_ocr_reader():
 # Agent Coral
 vision_agent = Agent(
     name="vision",
-    description="Agent d'analyse de fichiers images avec détection PII avancée - 100% offline",
+    description="Agent d'analyse de files images avec détection PII avancée - 100% offline",
     tools=["analyze_document"]
 )
 

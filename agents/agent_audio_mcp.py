@@ -1,16 +1,16 @@
 """
-Agent Audio MCP avec capacités IA complètes - Version Agent Autonome
-===================================================================
+Autonomous Audio MCP Agent with Complete AI Capabilities
+========================================================
 
-Agent Audio autonome MCP qui peut :
-- Analyser des fichiers audio et détecter les PII vocales avec intelligence contextuelle
-- Transcription speech-to-text avec Whisper local
-- Détection PII textuelle dans les transcriptions (email, téléphone, noms, adresses)
-- Résumé intelligent avec LLama-3 local via LangChain
-- Exposer toutes ses capacités via le protocole MCP officiel
+Autonomous Audio MCP Agent that can:
+- Analyze audio files and detect vocal PII with contextual intelligence
+- Speech-to-text transcription with local Whisper
+- PII detection in transcriptions (email, phone, names, addresses)
+- Intelligent summary with local Llama-3.2 via LangChain
+- Expose all capabilities via official MCP protocol
 
-Utilise Ollama/Llama + LangChain pour l'IA, Whisper pour la transcription, avec fallback intelligent.
-Format de sortie standardisé: {filepath, summary, warning}
+Uses Ollama/Llama + LangChain for AI, Whisper for transcription, with intelligent fallback.
+Standardized output format: {filepath, summary, warning}
 """
 
 import asyncio
@@ -25,42 +25,51 @@ from datetime import datetime
 import re
 import time
 
-# Suppression des avertissements
+# Suppress warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Imports MCP officiels
+# Official MCP imports
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 from mcp.types import TextContent
 from pydantic import BaseModel, Field
 
-# LangChain imports pour l'IA
+# LangChain imports for AI
 try:
     from langchain_community.llms import Ollama
     from langchain.tools import tool
     LANGCHAIN_AVAILABLE = True
-    print("✅ LangChain disponible")
+    print("✅ LangChain available")
 except ImportError:
     LANGCHAIN_AVAILABLE = False
-    print("⚠️ LangChain non disponible")
+    print("⚠️ LangChain not available")
 
-# Whisper pour la transcription
+# Whisper for transcription
 try:
     import whisper
     WHISPER_AVAILABLE = True
-    print("✅ Whisper disponible")
+    print("✅ Whisper available")
 except ImportError:
     WHISPER_AVAILABLE = False
-    print("⚠️ Whisper non disponible")
+    print("⚠️ Whisper not available")
 
-# numpy pour les calculs
+# numpy for calculations
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
-    print("✅ NumPy disponible")
+    print("✅ NumPy available")
 except ImportError:
     NUMPY_AVAILABLE = False
-    print("⚠️ NumPy non disponible")
+    print("⚠️ NumPy not available")
+
+# Import audio processor from utils
+try:
+    from utils.audio_transcript_processor import AudioSummaryAgent
+    AUDIO_PROCESSOR_AVAILABLE = True
+    print("✅ AudioSummaryAgent (utils) available")
+except ImportError:
+    AUDIO_PROCESSOR_AVAILABLE = False
+    print("⚠️ AudioSummaryAgent (utils) not available")
 
 # Configuration du logging avec support Unicode pour Windows
 logging.basicConfig(
@@ -88,11 +97,11 @@ if LANGCHAIN_AVAILABLE:
         )
         # Test de connexion
         test_response = llm.invoke("Test audio")
-        logger.info("✅ Ollama/Llama Audio connecté avec succès")
-        print("✅ Agent Audio IA Ollama/Llama prêt")
+        logger.info("✅ Ollama/Llama Audio connected successfully")
+        print("✅ Audio AI Agent Ollama/Llama ready")
     except Exception as e:
-        logger.warning(f"⚠️ Connexion Ollama échouée: {e}")
-        print(f"⚠️ Connexion Ollama échouée: {e}")
+        logger.warning(f"⚠️ Ollama connection failed: {e}")
+        print(f"⚠️ Ollama connection failed: {e}")
         llm = None
 
 # Regex patterns pour la détection PII dans les transcriptions
@@ -114,10 +123,10 @@ class AudioArgs(BaseModel):
     audio_bytes: Optional[bytes] = None
 
 class AudioResponse(BaseModel):
-    """Réponse standardisée de l'agent Audio (format unifié avec NLP/Vision)"""
+    """Standardized Audio agent response (unified format with NLP/Vision)"""
     filepath: str
     summary: str
-    warning: bool  # True = contient des informations sensibles
+    warning: bool  # True = contains sensitive information
 
 # ──────────────────────────────────────────────────────────────────────────
 # Fonctions principales d'analyse audio
@@ -125,13 +134,13 @@ class AudioResponse(BaseModel):
 
 def detect_pii_in_text(text: str) -> List[str]:
     """
-    Détecte les PII dans le texte transcrit
+    Detects PII in transcribed text
     
     Args:
-        text: Texte à analyser
+        text: Text to analyze
         
     Returns:
-        Liste des types de PII détectés
+        List of detected PII types
     """
     pii_detected = []
     
@@ -160,7 +169,7 @@ def detect_pii_in_text(text: str) -> List[str]:
 
 def transcribe_audio_simple(file_path: str) -> str:
     """
-    Transcription audio simple avec fallback
+    Simple audio transcription avec utilisation du processeur utils si disponible
     
     Args:
         file_path: Chemin du fichier audio
@@ -169,28 +178,43 @@ def transcribe_audio_simple(file_path: str) -> str:
         Texte transcrit
     """
     try:
+        # Priorité 1: Utiliser AudioSummaryAgent depuis utils si disponible
+        if AUDIO_PROCESSOR_AVAILABLE:
+            logger.info("🎙️ Utilisation du processeur audio avancé (utils)")
+            try:
+                audio_processor = AudioSummaryAgent()
+                doc_id, transcript, metadata = audio_processor.transcribe_audio(file_path)
+                logger.info(f"✅ Transcription réussie avec utils: {len(transcript)} caractères")
+                if transcript:
+                    logger.info(f"📝 Aperçu: '{transcript[:100]}{'...' if len(transcript) > 100 else ''}'")
+                return transcript
+            except Exception as utils_error:
+                logger.warning(f"⚠️ Error with utils AudioSummaryAgent: {utils_error}")
+                logger.info("🔄 Fallback to direct Whisper...")
+        
+        # Fallback: Utiliser Whisper directement
         if not WHISPER_AVAILABLE:
-            logger.warning("❌ Whisper non disponible")
+            logger.warning("❌ Whisper not available")
             return ""
         
         # Charger Whisper (modèle base pour bon compromis vitesse/qualité)
-        logger.info(f"🎙️ Chargement modèle Whisper...")
+        logger.info(f"🎙️ Chargement modèle Whisper direct...")
         model = whisper.load_model("base")
         
-        logger.info(f"🎙️ Début transcription: {Path(file_path).name}")
+        logger.info(f"🎙️ Début transcription directe: {Path(file_path).name}")
         
         # Transcription
         result = model.transcribe(file_path, language="fr")
         text = result.get("text", "").strip()
         
-        logger.info(f"✅ Transcription réussie: {len(text)} caractères")
+        logger.info(f"✅ Transcription directe réussie: {len(text)} caractères")
         if text:
             logger.info(f"📝 Aperçu: '{text[:100]}{'...' if len(text) > 100 else ''}'")
         
         return text
         
     except Exception as e:
-        logger.error(f"❌ Erreur transcription: {e}")
+        logger.error(f"❌ Transcription error: {e}")
         return ""
 
 async def analyze_audio_with_ai(file_path: str, use_ai: bool = True) -> dict:
@@ -297,6 +321,97 @@ Résumé:"""
             'warning': False
         }
 
+async def analyze_audio_with_utils_ai(file_path: str) -> dict:
+    """
+    Analyse complète d'un fichier audio avec AudioSummaryAgent depuis utils + IA
+    
+    Args:
+        file_path: Chemin du fichier audio
+        
+    Returns:
+        Dictionnaire avec filepath, summary, warning (format unifié)
+    """
+    try:
+        logger.info(f"🎵 Début analyse audio avec utils AI: {file_path}")
+        
+        # Vérifier l'existence du fichier
+        if not os.path.exists(file_path):
+            return {
+                'filepath': file_path,
+                'summary': 'Fichier audio non trouvé',
+                'warning': False
+            }
+        
+        # Priorité 1: Utiliser AudioSummaryAgent complet si disponible
+        if AUDIO_PROCESSOR_AVAILABLE:
+            logger.info("🤖 Utilisation de l'AudioSummaryAgent complet avec IA")
+            try:
+                audio_processor = AudioSummaryAgent()
+                # Utiliser la méthode complète qui fait transcription + analyse IA
+                result = audio_processor.summarize_from_audio(file_path)
+                
+                # Adapter le format de retour au format standardisé
+                if isinstance(result, dict):
+                    # Extraire les informations du résultat utils
+                    summary = result.get('summary', 'Analyse audio effectuée')
+                    protect = result.get('protect', False)
+                    
+                    return {
+                        'filepath': str(Path(file_path).resolve()),
+                        'summary': summary,
+                        'warning': protect
+                    }
+                else:
+                    logger.warning("⚠️ Format de retour inattendu de AudioSummaryAgent")
+                    # Fallback vers méthode standard
+                    return await analyze_audio_with_ai(file_path, use_ai=True)
+                    
+            except Exception as utils_error:
+                logger.warning(f"⚠️ Error with utils AudioSummaryAgent complet: {utils_error}")
+                logger.info("🔄 Fallback vers analyse standard...")
+                # Fallback vers méthode standard
+                return await analyze_audio_with_ai(file_path, use_ai=True)
+        else:
+            logger.info("📝 AudioSummaryAgent non disponible, utilisation méthode standard")
+            return await analyze_audio_with_ai(file_path, use_ai=True)
+        
+    except Exception as e:
+        logger.error(f"❌ Erreur analyse audio avec utils: {e}")
+        return {
+            'filepath': file_path,
+            'summary': f'Erreur analyse audio: {str(e)}',
+            'warning': False
+        }
+
+# ──────────────────────────────────────────────────────────────────────────
+# Fonction principale pour l'orchestrator (avec choix de méthode)
+# ──────────────────────────────────────────────────────────────────────────
+
+async def process_file_with_ai_enhanced(file_path: str, use_utils: bool = True) -> dict:
+    """
+    Point d'entrée principal amélioré pour l'orchestrator
+    
+    Args:
+        file_path: Chemin du fichier audio
+        use_utils: Utiliser AudioSummaryAgent depuis utils si disponible
+        
+    Returns:
+        Dictionnaire avec file_path, summary, warning (format unifié)
+    """
+    if use_utils and AUDIO_PROCESSOR_AVAILABLE:
+        logger.info("🎯 Utilisation de la méthode avancée avec utils")
+        result = await analyze_audio_with_utils_ai(file_path)
+    else:
+        logger.info("🎯 Utilisation de la méthode standard")
+        result = await analyze_audio_with_ai(file_path, use_ai=True)
+    
+    # Assurer le format unifié (filepath → file_path pour compatibilité)
+    return {
+        'file_path': result['filepath'],
+        'summary': result['summary'],
+        'warning': result['warning']
+    }
+
 # ──────────────────────────────────────────────────────────────────────────
 # Fonction principale pour l'orchestrator (compatible avec agent_nlp)
 # ──────────────────────────────────────────────────────────────────────────
@@ -394,41 +509,44 @@ async def process_audio_file(file_path: str, use_ai: bool = True) -> dict:
 # ──────────────────────────────────────────────────────────────────────────
 
 async def main():
-    """Interface en ligne de commande"""
+    """Command line interface"""
     if len(sys.argv) < 2:
-        print("Agent Audio MCP - Analyse de fichiers audio avec IA")
+        print("Audio MCP Agent - AI Audio File Analysis")
         print("=" * 50)
         print("\nUsage:")
-        print("  python agent_audio_mcp.py <audio_file>        # Analyse complète")
-        print("  python agent_audio_mcp.py --server            # Lancer serveur MCP")
-        print("\nFormats supportés:")
+        print("  python agent_audio_mcp.py <audio_file>        # Complete analysis")
+        print("  python agent_audio_mcp.py --server            # Launch MCP server")
+        print("\nSupported formats:")
         print("  • .mp3, .wav, .m4a, .ogg, .flac, .aac, .mp4")
-        print("\nExemples:")
+        print("\nExamples:")
         print("  python agent_audio_mcp.py ./audio/meeting.mp3")
         print("  python agent_audio_mcp.py ./recordings/call.wav")
+        print("\nPrerequisites:")
+        print("  • Ollama with llama3.2:latest model")
+        print("  • Run: ollama pull llama3.2:latest")
         return
     
     if sys.argv[1] == "--server":
-        print("🎵 Démarrage du serveur MCP Audio Agent...")
+        print("🎵 Starting MCP Audio Agent server...")
         await mcp.run()
         return
     
-    # Analyse du fichier fourni
+    # Analyze provided file
     audio_file = sys.argv[1]
     
-    print(f"\n🎵 Agent Audio - Analyse de fichier")
-    print(f"📁 Fichier: {audio_file}")
+    print(f"\n🎵 Audio Agent - File Analysis")
+    print(f"📁 File: {audio_file}")
     print("=" * 50)
     
     result = await analyze_audio_with_ai(audio_file)
     
-    print(f"\n🎯 === RÉSULTAT FINAL ===")
+    print(f"\n🎯 === FINAL RESULT ===")
     print(f"📁 Filepath: {result['filepath']}")
     print(f"📄 Summary: {result['summary']}")
     print(f"⚠️ Warning: {result['warning']}")
     
     print(f"\n{'=' * 50}")
-    print("✅ Analyse terminée")
+    print("✅ Analysis completed")
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -1,340 +1,163 @@
-# Multi-Agent MCP System
+# Enterprise File Auto-Organization System
 
-## Vue d'ensemble
+## 📋 Project Description
 
-Système multi-agents modulaire utilisant le Model Context Protocol (MCP) pour la communication inter-agents. Le système analyse automatiquement différents types de fichiers (texte, image, audio) en utilisant des agents spécialisés et coordonne les actions de sécurité.
+This project is an **intelligent enterprise file auto-organization system** that uses artificial intelligence to automatically classify your documents according to a strict and secure business structure.
 
-## Architecture
+### 🎯 Problem Solved
+- **Disorganization** of scattered enterprise files
+- **Time wasted** searching and manually classifying
+- **Lack of security** for sensitive documents
+- **Absence of coherent business structure**
 
-### Agents du Système
+### ✨ Proposed Solution
+An intelligent multi-agent system that:
+- **Automatically analyzes** file content (text, audio, images)
+- **Intelligently classifies** according to predefined business structure
+- **Secures** sensitive documents with AES-256 encryption
+- **Completely avoids** generic categories ("general", "others", etc.)
+- **Provides a modern and intuitive** graphical interface
 
-1. **Agent Orchestrateur** (`agent_orchestrator_mcp.py`)
-   - Coordinateur principal du système
-   - Scanne les répertoires et classifie les fichiers
-   - Dispatche les tâches aux agents spécialisés
-   - Collecte et coordonne les résultats
+## 🛠️ Prerequisites
 
-2. **Agent NLP** (`agent_nlp_mcp.py`)
-   - Traite les fichiers texte (.txt, .pdf, .md, .json, etc.)
-   - Détection intelligente des PII avec IA (Ollama/Llama)
-   - Analyse sémantique et résumé automatique
-   - Support multilingue
-
-3. **Agent Vision** (`agent_vision_mcp.py`)
-   - Traite les fichiers image (.jpg, .png, .gif, etc.)
-   - Analyse de contenu visuel
-   - Détection d'objets et reconnaissance
-   - Génération de descriptions
-
-4. **Agent Audio** (`agent_audio_mcp.py`)
-   - Traite les fichiers audio (.mp3, .wav, .flac, etc.)
-   - Analyse de contenu audio
-   - Transcription et analyse vocale
-   - Détection de caractéristiques sonores
-
-5. **Agent File Manager** (`agent_file_manager_mcp.py`)
-   - Consolide les résultats de tous les agents
-   - Génère des rapports détaillés
-   - Gère les statistiques et l'historique
-   - Organise les fichiers de sortie
-
-6. **Agent Security** (`agent_security_mcp.py`)
-   - Sécurise les fichiers avec warnings
-   - Actions de chiffrement et quarantaine
-   - Audit et notifications de sécurité
-   - Gestion des politiques de sécurité
-
-## Format de Sortie Unifié
-
-Tous les agents retournent un format JSON standardisé :
-
-```json
-{
-  "file_path": "chemin/vers/fichier",
-  "summary": "Résumé du contenu",
-  "warning": true/false
-}
+### 1. Python 3.11+
+```bash
+python --version  # Check version
 ```
 
-## Communication MCP
-
-Le système utilise le protocole MCP (Model Context Protocol) pour :
-- Communication agent-to-agent (A2A)
-- Exposition des outils via FastMCP
-- Standardisation des interfaces
-- Découverte automatique des services
-
-### Ports par Défaut
-
-- **Orchestrateur** : 8001
-- **NLP** : 8002
-- **Vision** : 8003
-- **Audio** : 8004
-- **File Manager** : 8005
-- **Security** : 8006
-
-## Installation
-
-### Prérequis
+### 2. Ollama (Artificial Intelligence)
+**Required** for intelligent classification:
 
 ```bash
-# Python 3.8+
+# Install Ollama
+# Download from https://ollama.ai/
+
+# Download Llama 3.2 model
+ollama pull llama3.2:latest
+
+# Verify installation
+ollama list
+```
+
+### 3. Python Dependencies
+```bash
 pip install -r requirements.txt
 ```
 
-### Dépendances Principales
+## 🚀 Installation
 
-```
-mcp-server-fastmcp
-pydantic
-langchain-community
-ollama
-PyPDF2
-pymupdf
-pillow
-librosa
-psutil
-```
-
-### Configuration Ollama (Optionnel)
-
-Pour l'analyse IA avancée :
-
+1. **Clone the project**
 ```bash
-# Installer Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
+git clone <your-repo>
+cd KACM-Qualcomm-track
+```
 
-# Télécharger un modèle
+2. **Install Ollama and model**
+```bash
+# Download Ollama from https://ollama.ai/
 ollama pull llama3.2:latest
 ```
 
-## Utilisation
-
-### Démarrage Rapide
-
+3. **Install Python dependencies**
 ```bash
-# Démarrer tous les agents
-python startup_multi_agent_system.py start
-
-# Vérifier le statut
-python startup_multi_agent_system.py status
-
-# Lancer les tests
-python startup_multi_agent_system.py test
-
-# Arrêter tous les agents
-python startup_multi_agent_system.py stop
+pip install -r requirements.txt
 ```
 
-### Utilisation Programmatique
-
-```python
-from agent_orchestrator_mcp import AgentOrchestrator
-import asyncio
-
-async def main():
-    orchestrator = AgentOrchestrator()
-    
-    # Traiter un répertoire
-    result = await orchestrator.process_directory("./mon_repertoire")
-    
-    print(f"Fichiers traités: {len(result.processed_files)}")
-    print(f"Avertissements: {result.total_warnings}")
-
-asyncio.run(main())
-```
-
-### Traitement par Lot
-
-```python
-# Scan d'un répertoire
-scan_result = orchestrator.scan_directory("./documents", recursive=True)
-
-# Traitement complet
-processing_result = await orchestrator.process_batch("./documents")
-```
-
-## Workflow Complet
-
-1. **Scan** : L'orchestrateur scanne le répertoire cible
-2. **Classification** : Les fichiers sont classifiés par type
-3. **Dispatch** : Chaque fichier est envoyé à l'agent approprié
-4. **Traitement** : Les agents spécialisés analysent les fichiers
-5. **Consolidation** : Le File Manager consolide les résultats
-6. **Sécurité** : Les fichiers avec warnings sont sécurisés
-7. **Rapport** : Un rapport final est généré
-
-## Configuration
-
-### Variables d'Environnement
-
+4. **Launch the interface**
 ```bash
-# Ollama (optionnel)
-export OLLAMA_BASE_URL=http://localhost:11434
-export LLAMA_MODEL=llama3.2:latest
-
-# Logging
-export LOG_LEVEL=INFO
+python start_gui.py
 ```
 
-### Fichiers de Configuration
+## 🖥️ Usage
 
-Chaque agent a sa propre configuration dans `config.py` :
-
-```python
-# Configuration NLP
-NLP_CONFIG = {
-    'max_text_length': 10000,
-    'use_ai_analysis': True,
-    'offline_mode': False
-}
-
-# Configuration Vision
-VISION_CONFIG = {
-    'max_image_size': 10 * 1024 * 1024,  # 10MB
-    'supported_formats': ['.jpg', '.png', '.gif']
-}
-```
-
-## Tests
-
-### Suite de Tests Complète
-
+### Graphical Interface (Recommended)
 ```bash
-# Lancer tous les tests
-python test_multi_agent_workflow.py
+python start_gui.py
 ```
 
-### Tests Individuels
-
+### Programmatic Usage
 ```python
-# Test d'un agent spécifique
-from agent_nlp_mcp import NLPAgent, NLPConfig
+from agents.agent_file_manager_intelligent import AgentFileManagerIntelligent
 
-agent = NLPAgent(NLPConfig())
-result = await agent.analyze_file("document.txt")
+# Create intelligent agent
+agent = AgentFileManagerIntelligent()
+
+# Organize a folder
+result = agent.organize_folder("/path/to/folder")
+print(f"Files organized: {result['total_files']}")
 ```
 
-## Développement
+## 🏗️ System Architecture
 
-### Ajouter un Nouvel Agent
+### 🤖 Multi-Modal Agents
+- **`agent_file_manager_intelligent.py`** - Main agent with Llama AI
+- **`agent_nlp_mcp.py`** - Text analysis and NLP
+- **`agent_audio_mcp.py`** - Audio transcription and analysis
+- **`agent_vision_mcp.py`** - Image recognition and OCR
+- **`agent_security_mcp.py`** - Encryption and security
+- **`agent_orchestrator_mcp.py`** - Workflow orchestration
 
-1. Créer `agent_mon_agent_mcp.py`
-2. Hériter de la classe de base
-3. Implémenter les méthodes requises
-4. Exposer les outils via MCP
-5. Ajouter au startup script
+### 🖥️ Interface
+- **`gui_file_organizer.py`** - Tkinter graphical interface
+- **`start_gui.py`** - Startup script
 
-### Structure d'un Agent
+### 🔧 Utilities
+- **`agents/utils/`** - Specialized processors (audio, etc.)
 
-```python
-from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel
+## ⚡ Main Features
 
-class MonAgent:
-    def __init__(self, config):
-        self.config = config
-        
-    async def process_file(self, file_path: str):
-        # Logique de traitement
-        return {
-            "file_path": file_path,
-            "summary": "Résumé",
-            "warning": False
-        }
+### 🧠 Artificial Intelligence
+- **Contextual classification** via Llama 3.2 model
+- **Semantic analysis** of file content
+- **Thematic scoring** for automatic decision-making
+- **Zero generic categories** (no more "general" or "others")
 
-# Serveur MCP
-mcp_server = FastMCP("Mon Agent MCP")
+### 🔐 Advanced Security
+- **AES-256 encryption** for sensitive folders
+- **Automatic detection** of confidential content
+- **Secure management** of passwords
+- **Automatic public/secure** classification
 
-@mcp_server.tool()
-async def analyze_file(file_path: str):
-    agent = MonAgent(config)
-    return await agent.process_file(file_path)
+### 📁 Strict Business Structure
+```
+organized/
+├── public/                          # Public documents
+│   ├── administration_hr/           # HR and administration
+│   ├── commercial_sales/            # Commercial and sales
+│   ├── communication_marketing/     # Communication and marketing
+│   ├── accounting_finance/          # Accounting and finance
+│   ├── it_technical/               # IT and technical
+│   ├── legal_juridical/            # Legal and juridical
+│   ├── operations_production/       # Operations and production
+│   └── multimedia_resources/        # Media and resources
+└── secure/                         # Encrypted documents (same structure)
+    ├── administration_hr/
+    ├── commercial_sales/
+    └── ...
 ```
 
-## Monitoring
+### 🎯 Multi-Modal Analysis
+- **Text**: NLP analysis, entity extraction, thematic classification
+- **Audio**: Automatic transcription, spoken content analysis
+- **Images**: OCR, object recognition, text extraction
+- **Metadata**: File property analysis
 
-### Logs
+## 🔧 Technologies Used
 
-Les logs sont disponibles dans `logs/` :
+- **Python 3.11+** - Main language
+- **Ollama + Llama 3.2** - Artificial intelligence
+- **Tkinter** - Graphical interface
+- **Cryptography** - AES-256 encryption
+- **OpenCV** - Image processing
+- **SpeechRecognition** - Audio transcription
 
-- `orchestrator.log` : Logs de l'orchestrateur
-- `nlp_agent.log` : Logs de l'agent NLP
-- `vision_agent.log` : Logs de l'agent Vision
-- `audio_agent.log` : Logs de l'agent Audio
 
-### Métriques
 
-```python
-# Statut du système
-python startup_multi_agent_system.py status
+## 📊 Project Statistics
 
-# Ou programmatiquement
-from startup_multi_agent_system import status
-status()
-```
-
-## Sécurité
-
-### Détection PII
-
-L'agent NLP détecte automatiquement :
-- Adresses email
-- Numéros de téléphone
-- Numéros de carte bancaire
-- Codes IBAN
-- Numéros de sécurité sociale
-
-### Actions de Sécurité
-
-L'agent Security peut :
-- Chiffrer les fichiers sensibles
-- Mettre en quarantaine
-- Envoyer des notifications
-- Créer des audits
-
-## Dépannage
-
-### Problèmes Courants
-
-1. **Port occupé** : Vérifiez les processus en cours
-2. **Ollama non disponible** : Le système fonctionne en mode offline
-3. **Fichiers non supportés** : Vérifiez les extensions supportées
-4. **Permissions** : Assurez-vous des droits d'accès aux fichiers
-
-### Debug
-
-```bash
-# Logs détaillés
-export LOG_LEVEL=DEBUG
-
-# Mode test
-python startup_multi_agent_system.py test
-```
-
-## Roadmap
-
-- [ ] Interface web pour monitoring
-- [ ] Support de nouveaux formats de fichiers
-- [ ] Intégration avec des services cloud
-- [ ] API REST pour intégration externe
-- [ ] Dashboard de métriques en temps réel
-
-## Contribution
-
-1. Fork le projet
-2. Créer une branche feature
-3. Commiter les changements
-4. Pousser vers la branche
-5. Créer une Pull Request
-
-## Licence
-
-MIT License - voir le fichier LICENSE pour plus de détails.
-
-## Support
-
-Pour des questions ou des problèmes :
-- Ouvrir une issue sur GitHub
-- Consulter la documentation
-- Vérifier les logs dans `logs/`
+- ✅ **100% business classification** (zero "general")
+- ✅ **Enterprise-grade security** (AES-256)
+- ✅ **Modern and intuitive** graphical interface
+- ✅ **Multi-modal** (text, audio, images)
+- ✅ **Contextual artificial intelligence**
+- ✅ **Scalable multi-agent** architecture

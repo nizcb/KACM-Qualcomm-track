@@ -3,7 +3,7 @@ Agent NLP MCP avec capacités IA complètes - Version Agent Autonome
 =================================================================
 
 Agent IA autonome MCP qui peut :
-- Analyser des fichiers et détecter les PII avec intelligence contextuelle
+- Analyser des files et détecter les PII avec intelligence contextuelle
 - Raisonner sur les tâches à accomplir (ReAct pattern)
 - Planifier ses actions de manière autonome
 - Utiliser des outils de manière intelligente
@@ -91,8 +91,8 @@ if LANGCHAIN_AVAILABLE:
         logger.info("✅ Ollama/Llama connecté avec succès")
         print("✅ Agent IA Ollama/Llama prêt")
     except Exception as e:
-        logger.warning(f"⚠️ Connexion Ollama échouée: {e}")
-        print(f"⚠️ Connexion Ollama échouée: {e}")
+        logger.warning(f"⚠️ Ollama connection failed: {e}")
+        print(f"⚠️ Ollama connection failed: {e}")
         llm = None
 
 # Regex patterns avancés pour la détection PII
@@ -104,7 +104,7 @@ PII_REGEXES: Dict[str, re.Pattern] = {
     "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
 }
 # ──────────────────────────────────────────────────────────────────────────
-# Fonctions utilitaires pour le traitement de fichiers (identiques à l'original)
+# Fonctions utilitaires pour le traitement de files (identiques à l'original)
 # ──────────────────────────────────────────────────────────────────────────
 
 def extract_pdf_content(file_path: str) -> str:
@@ -202,7 +202,7 @@ class TranslationResult(BaseModel):
 class BatchProcessingResult(BaseModel):
     """Résultat du traitement en lot"""
     batch_info: Dict[str, Any] = Field(description="Informations du lot")
-    files: List[Dict[str, Any]] = Field(description="Résumé des fichiers")
+    files: List[Dict[str, Any]] = Field(description="Résumé des files")
     detailed_results: Dict[str, Any] = Field(description="Résultats détaillés")
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -272,7 +272,7 @@ Texte à analyser :
 {content}
 
 Réponds UNIQUEMENT par:
-- "AUCUNE_PII" si aucune information personnelle réelle n'est détectée
+- "NONE_PII" si aucune information personnelle réelle n'est détectée
 - "PII_DETECTEES" si des PII réelles sont présentes
 
 Réponse:"""
@@ -312,8 +312,8 @@ Tu as accès aux outils suivants:
 2. generate_smart_summary_tool(text) - Génère un résumé intelligent
 3. detect_pii_tool(text) - Détecte les PII
 4. save_json_tool(data, filename) - Sauvegarde en JSON
-5. list_files_tool(directory) - Liste les fichiers
-6. process_multiple_files_tool(file_paths) - Traite plusieurs fichiers (séparés par des virgules)
+5. list_files_tool(directory) - Liste les files
+6. process_multiple_files_tool(file_paths) - Traite plusieurs files (séparés par des virgules)
 
 Utilise le format de raisonnement suivant:
 Thought: [Ce que je dois faire]
@@ -406,7 +406,7 @@ Commence par réfléchir:"""
                     content = "Erreur: Aucune bibliothèque PDF disponible"
                     logger.warning("[WARN] Aucune bibliothèque PDF disponible")
             else:
-                # Traitement fichiers texte
+                # Traitement files texte
                 with open(full_path, 'r', encoding='utf-8') as file:
                     content = file.read()
                 logger.info(f"[TEXT] Contenu texte lu ({len(content)} caractères)")
@@ -464,7 +464,7 @@ Commence par réfléchir:"""
                     content = "Erreur: Aucune bibliothèque PDF disponible"
                     logger.warning("[WARN] Aucune bibliothèque PDF disponible")
             else:
-                # Traitement fichiers texte
+                # Traitement files texte
                 with open(full_path, 'r', encoding='utf-8') as file:
                     content = file.read()
                 logger.info(f"[TEXT] Contenu texte lu ({len(content)} caractères)")
@@ -501,7 +501,7 @@ Commence par réfléchir:"""
             except Exception as e:
                 return f"Erreur lors du chat: {e}"
         else:
-            return "Mode offline activé. Utilisez les commandes directes pour traiter les fichiers."
+            return "Mode offline activé. Utilisez les commandes directes pour traiter les files."
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extraction de texte depuis un PDF"""
@@ -546,7 +546,7 @@ Texte à analyser :
 {text}
 
 Réponds UNIQUEMENT par:
-- "AUCUNE_PII" si aucune information personnelle réelle n'est détectée
+- "NONE_PII" si aucune information personnelle réelle n'est détectée
 - "PII_DETECTEES: [types détectés]" si des PII réelles sont présentes
 
 Réponse:"""
@@ -554,7 +554,7 @@ Réponse:"""
                     response = self.llm.invoke(prompt)
                     ai_analysis = response.strip()
                     
-                    if "AUCUNE_PII" in response.upper():
+                    if "NONE_PII" in response.upper():
                         found_pii = False
                     elif "PII_DETECTEES" in response.upper():
                         found_pii = True
@@ -726,12 +726,12 @@ Traduction:"""
         )
         
     def process_multiple_files_with_reasoning(self, file_paths: List[str]) -> Dict[str, Any]:
-        """Traite plusieurs fichiers en utilisant le raisonnement de l'agent IA (identique à l'original)"""
+        """Traite plusieurs files en utilisant le raisonnement de l'agent IA (identique à l'original)"""
         results = {}
         summary_results = []
         total_warnings = 0
         
-        logger.info(f"[BATCH] Traitement de {len(file_paths)} fichiers...")
+        logger.info(f"[BATCH] Traitement de {len(file_paths)} files...")
         
         for i, file_path in enumerate(file_paths, 1):
             logger.info(f"[{i}/{len(file_paths)}] Traitement du fichier: {file_path}")
@@ -912,6 +912,110 @@ def analyze_file(file_path: str) -> FileAnalysisResult:
         raise
 
 @mcp.tool()
+
+def analyze_text_pii_with_ai_corrected(text: str) -> Dict[str, Any]:
+    """
+    Version corrigée de l'analyse PII avec IA + fallback regex FORCÉ
+    
+    CORRECTION CRITIQUE:
+    - Force l'utilisation du fallback regex si l'IA échoue
+    - Combine les résultats IA + regex pour plus de robustesse
+    - Log détaillé pour debugging
+    - Logique de décision améliorée
+    """
+    logger.info("🔍 Analyse PII corrigée - Démarrage")
+    
+    # Résultat par défaut
+    result = {
+        "filepath": "analysis",
+        "summary": "Analyse en cours...",
+        "warning": False,
+        "pii_detected": [],
+        "method_used": "unknown",
+        "debug_info": {}
+    }
+    
+    # 1. TOUJOURS faire l'analyse regex en premier (fallback garanti)
+    logger.info("🔍 Étape 1: Analyse regex (fallback)")
+    regex_pii = detect_pii_in_text(text)
+    regex_warning = len(regex_pii) > 0
+    
+    result["debug_info"]["regex_pii"] = regex_pii
+    result["debug_info"]["regex_warning"] = regex_warning
+    
+    logger.info(f"📊 Regex - PII détectées: {regex_pii}")
+    logger.info(f"📊 Regex - Warning: {regex_warning}")
+    
+    # 2. Tentative d'analyse IA (si disponible)
+    ai_result = None
+    ai_warning = False
+    
+    if llm and LANGCHAIN_AVAILABLE:
+        try:
+            logger.info("🔍 Étape 2: Analyse IA")
+            
+            prompt = f"""Analyse ce texte et détermine s'il contient des informations personnelles identifiables (PII).
+            
+PII incluent: emails, téléphones, cartes bancaires, IBAN, adresses, noms complets, etc.
+
+Texte à analyser:
+{text[:1000]}
+
+Réponds par 'OUI' si PII détectées, 'NON' sinon, suivi d'une explication courte."""
+
+            ai_response = llm.invoke(prompt)
+            
+            # Parser la réponse IA
+            if ai_response and isinstance(ai_response, str):
+                ai_response_lower = ai_response.lower()
+                if "oui" in ai_response_lower or "yes" in ai_response_lower:
+                    ai_warning = True
+                elif "non" in ai_response_lower or "no" in ai_response_lower:
+                    ai_warning = False
+                else:
+                    # Réponse ambiguë, utiliser regex
+                    logger.warning("⚠️ Réponse IA ambiguë, utilisation regex")
+                    ai_warning = regex_warning
+                
+                ai_result = ai_response
+                result["debug_info"]["ai_response"] = ai_response
+                result["debug_info"]["ai_warning"] = ai_warning
+                
+                logger.info(f"📊 IA - Réponse: {ai_response[:100]}...")
+                logger.info(f"📊 IA - Warning: {ai_warning}")
+            else:
+                logger.warning("⚠️ Réponse IA invalide, utilisation regex")
+                ai_warning = regex_warning
+                
+        except Exception as e:
+            logger.error(f"❌ Erreur IA: {e}")
+            ai_result = None
+            ai_warning = regex_warning  # Fallback vers regex
+    else:
+        logger.info("ℹ️ IA non disponible, utilisation regex uniquement")
+        ai_warning = regex_warning
+    
+    # 3. LOGIQUE DE DÉCISION CORRIGÉE
+    # Priorité: Si regex OU IA détectent des PII -> WARNING = True
+    final_warning = regex_warning or ai_warning
+    
+    logger.info(f"🎯 Décision finale: regex={regex_warning} OR ai={ai_warning} = {final_warning}")
+    
+    # 4. Construction du résultat final
+    if ai_result:
+        result["summary"] = ai_result
+        result["method_used"] = "ai_with_regex_fallback"
+    else:
+        result["summary"] = f"Analyse regex: {len(regex_pii)} types de PII détectés: {', '.join(regex_pii)}"
+        result["method_used"] = "regex_only"
+    
+    result["warning"] = final_warning
+    result["pii_detected"] = regex_pii
+    
+    logger.info(f"✅ Analyse terminée - Warning: {final_warning}")
+    return result
+
+
 def detect_pii_in_text(text: str) -> PIIDetectionResult:
     """Détection intelligente des informations personnelles avec IA"""
     try:
@@ -968,10 +1072,10 @@ def reason_about_task(query: str) -> str:
 
 @mcp.tool()
 def process_multiple_files(file_paths: List[str]) -> BatchProcessingResult:
-    """Traitement en lot de plusieurs fichiers avec IA"""
+    """Traitement en lot de plusieurs files avec IA"""
     try:
         result = get_agent().process_multiple_files_with_reasoning(file_paths)
-        logger.info(f"Traitement en lot terminé: {len(file_paths)} fichiers")
+        logger.info(f"Traitement en lot terminé: {len(file_paths)} files")
         
         return BatchProcessingResult(
             batch_info=result["batch_info"],
@@ -1055,7 +1159,7 @@ async def batch_analyze_directory(directory_path: str, file_extensions: List[str
                 if ext in file_extensions:
                     file_paths.append(file_path)
         
-        await ctx.info(f"📁 {len(file_paths)} fichiers trouvés")
+        await ctx.info(f"📁 {len(file_paths)} files trouvés")
         
         if not file_paths:
             await ctx.warning("Aucun fichier trouvé avec les extensions spécifiées")
@@ -1067,7 +1171,7 @@ async def batch_analyze_directory(directory_path: str, file_extensions: List[str
         
         # Traitement en lot
         result = get_agent().process_multiple_files_with_reasoning(file_paths)
-        await ctx.info(f"✅ Traitement en lot terminé: {len(file_paths)} fichiers")
+        await ctx.info(f"✅ Traitement en lot terminé: {len(file_paths)} files")
         
         return BatchProcessingResult(
             batch_info=result["batch_info"],
@@ -1163,7 +1267,7 @@ def reasoning_prompt(task: str) -> str:
 - Résumés adaptatifs selon le type de contenu
 - Traduction contextuelle
 - Orchestration de workflows complexes
-- Traitement en lot de fichiers
+- Traitement en lot de files
 
 ⚡ Capacités avancées:
 - Analyse de documents multi-formats
@@ -1199,7 +1303,7 @@ def chat_prompt(context: str = "") -> str:
 - "Résume-moi les points clés de ce texte en français"
 - "Y a-t-il des données personnelles dans ce fichier PDF ?"
 - "Traduis ce texte en gardant le sens original et le contexte"
-- "Traite tous les fichiers de ce dossier et génère un rapport"
+- "Traite tous les files de ce dossier et génère un rapport"
 - "Explique-moi pourquoi tu as détecté ces informations comme sensibles"
 
 🔧 Actions automatiques:
@@ -1217,7 +1321,7 @@ L'agent comprendra vos demandes et planifiera automatiquement les actions néces
 
 @mcp.prompt(title="Traitement en Lot")
 def batch_processing_prompt(directory_or_files: str, operations: str = "analyze,detect_pii") -> str:
-    """Prompt pour le traitement en lot de fichiers"""
+    """Prompt pour le traitement en lot de files"""
     ops_list = [op.strip() for op in operations.split(',')]
     return f"""
 🔄 Agent IA NLP - Traitement en Lot Intelligent
@@ -1249,7 +1353,7 @@ def batch_processing_prompt(directory_or_files: str, operations: str = "analyze,
 
 ⚡ Utiliser l'outil process_multiple_files ou batch_analyze_directory selon le cas.
 
-L'agent optimisera automatiquement le traitement selon le volume et le type de fichiers.
+L'agent optimisera automatiquement le traitement selon le volume et le type de files.
 """
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -1264,7 +1368,7 @@ def process_file(file_path: str, offline_mode: bool = False) -> Dict[str, Any]:
     return agent_temp.process_file_with_reasoning(file_path)
 
 def process_multiple_files_standalone(file_paths: List[str], offline_mode: bool = False) -> Dict[str, Any]:
-    """Traite plusieurs fichiers et retourne le résultat JSON global (compatible avec l'agent original)"""
+    """Traite plusieurs files et retourne le résultat JSON global (compatible avec l'agent original)"""
     config_temp = NLPConfig()
     config_temp.offline_mode = offline_mode
     agent_temp = NLPAgent(config_temp)
@@ -1296,10 +1400,10 @@ def chat_mode():
                 print("""
 🤖 Commandes disponibles:
 - Analysez un fichier: "Analyse le fichier recit.txt" ou "Analyse le fichier document.pdf"
-- Listez les fichiers: "Quels fichiers sont disponibles?"
+- Listez les files: "Quels files sont disponibles?"
 - Posez des questions: "Résume-moi ce document"
 - Détection PII: "Y a-t-il des informations sensibles?"
-- Traitement en lot: "Traite tous les fichiers .txt du dossier"
+- Traitement en lot: "Traite tous les files .txt du dossier"
 - quit/exit: Quitter le chat
 
 📄 Formats supportés: .txt, .py, .md, .json, .csv, .xml, .html, .log, .pdf

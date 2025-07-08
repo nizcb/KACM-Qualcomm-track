@@ -3,8 +3,8 @@ Agent Orchestrator MCP - Coordinateur principal du système
 ==========================================================
 
 Agent principal qui :
-- Scanne un répertoire et identifie tous les fichiers
-- Distribue les fichiers aux agents spécialisés selon leur type :
+- Scanne un répertoire et identifie tous les files
+- Distribue les files aux agents spécialisés selon leur type :
   * Texte (.txt, .pdf, .md, .json, .csv) → Agent NLP
   * Images (.jpg, .jpeg, .png, .gif, .bmp) → Agent Vision
   * Audio (.mp3, .wav, .m4a, .ogg) → Agent Audio
@@ -168,14 +168,14 @@ class AgentOrchestrator:
     
     def scan_directory(self, directory_path: str, recursive: bool = True) -> Dict[str, List[FileInfo]]:
         """
-        Scanne un répertoire et classifie tous les fichiers par type
+        Scanne un répertoire et classifie tous les files par type
         
         Args:
             directory_path: Répertoire à scanner
             recursive: Scan récursif des sous-dossiers
             
         Returns:
-            Dictionnaire des fichiers classés par type d'agent
+            Dictionnaire des files classés par type d'agent
         """
         logger.info(f"🔍 Scan du répertoire: {directory_path} (récursif: {recursive})")
         
@@ -205,21 +205,21 @@ class AgentOrchestrator:
         # Statistiques du scan
         total_classified = sum(len(files) for files in files_by_agent.values())
         logger.info(f"📊 Scan terminé:")
-        logger.info(f"   • {self.stats['files_scanned']} fichiers scannés")
-        logger.info(f"   • {total_classified} fichiers classifiés")
-        logger.info(f"   • NLP: {len(files_by_agent['nlp'])} fichiers")
-        logger.info(f"   • Vision: {len(files_by_agent['vision'])} fichiers") 
-        logger.info(f"   • Audio: {len(files_by_agent['audio'])} fichiers")
+        logger.info(f"   • {self.stats['files_scanned']} files scannés")
+        logger.info(f"   • {total_classified} files classifiés")
+        logger.info(f"   • NLP: {len(files_by_agent['nlp'])} files")
+        logger.info(f"   • Vision: {len(files_by_agent['vision'])} files") 
+        logger.info(f"   • Audio: {len(files_by_agent['audio'])} files")
         
         return files_by_agent
     
     async def dispatch_to_agent(self, agent_type: str, files: List[FileInfo]) -> List[ProcessingResult]:
         """
-        Envoie les fichiers à l'agent spécialisé correspondant
+        Envoie les files à l'agent spécialisé correspondant
         
         Args:
             agent_type: Type d'agent ('nlp', 'vision', 'audio')
-            files: Liste des fichiers à traiter
+            files: Liste des files à traiter
             
         Returns:
             Liste des résultats de traitement
@@ -227,7 +227,7 @@ class AgentOrchestrator:
         if not files:
             return []
         
-        logger.info(f"📤 Dispatch vers Agent {agent_type.upper()}: {len(files)} fichiers")
+        logger.info(f"📤 Dispatch vers Agent {agent_type.upper()}: {len(files)} files")
         
         results = []
         
@@ -382,7 +382,7 @@ class AgentOrchestrator:
     
     async def send_to_security(self, warning_files: List[ProcessingResult]) -> List[Dict[str, Any]]:
         """
-        Envoie les fichiers avec warnings à l'Agent Security pour sécurisation
+        Envoie les files avec warnings à l'Agent Security pour sécurisation
         
         Args:
             warning_files: Liste des résultats avec warning=True
@@ -394,7 +394,7 @@ class AgentOrchestrator:
             logger.info("🔒 Aucun fichier nécessitant une sécurisation")
             return []
         
-        logger.info(f"🔒 Envoi vers Security Agent: {len(warning_files)} fichiers sensibles")
+        logger.info(f"🔒 Envoi vers Security Agent: {len(warning_files)} files sensibles")
         
         try:
             # Import de l'agent Security
@@ -436,7 +436,7 @@ class AgentOrchestrator:
         logger.info(f"🔄 Session: {self.session_id}")
         
         try:
-            # 1. Scanner et classifier les fichiers
+            # 1. Scanner et classifier les files
             files_by_agent = self.scan_directory(directory_path, recursive)
             
             # 2. Traitement en parallèle par les agents spécialisés
@@ -445,7 +445,7 @@ class AgentOrchestrator:
             # Dispatching en parallèle vers les 3 agents
             tasks = []
             for agent_type, files in files_by_agent.items():
-                if files:  # Seulement si des fichiers sont présents
+                if files:  # Seulement si des files sont présents
                     task = self.dispatch_to_agent(agent_type, files)
                     tasks.append(task)
             
@@ -462,14 +462,14 @@ class AgentOrchestrator:
             # 3. Envoyer à l'Agent File Manager
             file_manager_report = await self.send_to_file_manager(all_results)
             
-            # 4. Identifier les fichiers avec warning et les sécuriser
+            # 4. Identifier les files avec warning et les sécuriser
             warning_files = [r for r in all_results if r.warning]
             security_actions = await self.send_to_security(warning_files)
             
             # 5. Générer le rapport final
             end_time = datetime.now()
             
-            # Compter les fichiers par type
+            # Compter les files par type
             files_by_type = {}
             for agent_type, files in files_by_agent.items():
                 files_by_type[agent_type] = len(files)
@@ -627,9 +627,9 @@ async def main():
     # Afficher le résumé
     print(f"\n📊 === RÉSUMÉ FINAL ===")
     print(f"📁 Fichiers scannés: {report.total_files}")
-    print(f"📝 NLP: {report.files_by_type.get('nlp', 0)} fichiers")
-    print(f"🖼️ Vision: {report.files_by_type.get('vision', 0)} fichiers")
-    print(f"🎵 Audio: {report.files_by_type.get('audio', 0)} fichiers")
+    print(f"📝 NLP: {report.files_by_type.get('nlp', 0)} files")
+    print(f"🖼️ Vision: {report.files_by_type.get('vision', 0)} files")
+    print(f"🎵 Audio: {report.files_by_type.get('audio', 0)} files")
     print(f"⚠️ Fichiers sensibles: {len(report.files_with_warnings)}")
     print(f"🔒 Actions sécurité: {len(report.security_actions)}")
     

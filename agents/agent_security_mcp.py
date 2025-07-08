@@ -328,7 +328,7 @@ class VaultManager:
         }
     
     def list_files(self):
-        """Liste tous les fichiers dans le vault"""
+        """Liste tous les files dans le vault"""
         conn = sqlite3.connect(str(VAULT_DB))
         cursor = conn.cursor()
         
@@ -362,6 +362,173 @@ class VaultManager:
             "total_files": count or 0,
             "total_size": total_size or 0
         }
+    
+    def encrypt_folder(self, folder_path: str, password: str, description: str = "") -> Dict[str, Any]:
+        """
+        Chiffre un dossier complet avec tous ses files
+        """
+        try:
+            folder_path = Path(folder_path)
+            if not folder_path.exists():
+                return {"success": False, "error": f"Dossier non trouvé: {folder_path}"}
+            
+            # Installer pyAesCrypt si nécessaire
+            try:
+                import pyAesCrypt
+            except ImportError:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "pyAesCrypt"])
+                import pyAesCrypt
+            
+            # Créer un dossier chiffré
+            encrypted_folder_name = f"{folder_path.name}_encrypted_{int(time.time())}"
+            encrypted_folder_path = folder_path.parent / encrypted_folder_name
+            encrypted_folder_path.mkdir(exist_ok=True)
+            
+            encrypted_files = []
+            total_files = 0
+            successful_encryptions = 0
+            
+            # Parcourir tous les files du dossier
+            for file_path in folder_path.rglob("*"):
+                if file_path.is_file():
+                    total_files += 1
+                    try:
+                        # Créer la structure de dossiers dans le dossier chiffré
+                        relative_path = file_path.relative_to(folder_path)
+                        encrypted_file_path = encrypted_folder_path / f"{relative_path}.enc"
+                        encrypted_file_path.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        # Chiffrer le fichier
+                        pyAesCrypt.encryptFile(str(file_path), str(encrypted_file_path), password, 64*1024)
+                        
+                        encrypted_files.append({
+                            "original": str(file_path),
+                            "encrypted": str(encrypted_file_path),
+                            "relative_path": str(relative_path)
+                        })
+                        successful_encryptions += 1
+                        
+                    except Exception as e:
+                        print(f"⚠️ Erreur chiffrement {file_path.name}: {e}")
+            
+            # Créer un fichier de métadonnées
+            metadata = {
+                "original_folder": str(folder_path),
+                "encrypted_folder": str(encrypted_folder_path),
+                "description": description,
+                "created_at": datetime.now().isoformat(),
+                "total_files": total_files,
+                "encrypted_files": successful_encryptions,
+                "file_list": encrypted_files
+            }
+            
+            metadata_file = encrypted_folder_path / "folder_metadata.json"
+            with open(metadata_file, 'w', encoding='utf-8') as f:
+                json.dump(metadata, f, indent=2, ensure_ascii=False)
+            
+            # Enregistrer dans la base de données
+            folder_uuid = str(uuid.uuid4())
+            conn = sqlite3.connect(str(VAULT_DB))
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                INSERT INTO vault_entries (uuid, original_path, encrypted_path, filename, created_at, file_hash, file_size)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                folder_uuid,
+                str(folder_path),
+                str(encrypted_folder_path),
+                folder_path.name,
+                datetime.now().isoformat(),
+                f"folder_{successful_encryptions}_files",
+                successful_encryptions
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return {
+                "success": True,
+                "folder_uuid": folder_uuid,
+                "encrypted_folder": str(encrypted_folder_path),
+                "total_files": total_files,
+                "encrypted_files": successful_encryptions,
+                "metadata": metadata
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    def decrypt_folder(self, encrypted_folder_path: str, password: str, output_folder: str = None) -> Dict[str, Any]:
+        """
+        Déchiffre un dossier complet
+        """
+        try:
+            encrypted_folder_path = Path(encrypted_folder_path)
+            if not encrypted_folder_path.exists():
+                return {"success": False, "error": f"Dossier chiffré non trouvé: {encrypted_folder_path}"}
+            
+            # Installer pyAesCrypt si nécessaire
+            try:
+                import pyAesCrypt
+            except ImportError:
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "pyAesCrypt"])
+                import pyAesCrypt
+            
+            # Lire les métadonnées
+            metadata_file = encrypted_folder_path / "folder_metadata.json"
+            if not metadata_file.exists():
+                return {"success": False, "error": "Fichier de métadonnées non trouvé"}
+            
+            with open(metadata_file, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+            
+            # Créer le dossier de sortie
+            if not output_folder:
+                original_name = Path(metadata["original_folder"]).name
+                output_folder = encrypted_folder_path.parent / f"{original_name}_decrypted_{int(time.time())}"
+            else:
+                output_folder = Path(output_folder)
+            
+            output_folder.mkdir(exist_ok=True)
+            
+            decrypted_files = []
+            successful_decryptions = 0
+            
+            # Déchiffrer tous les files
+            for file_info in metadata["file_list"]:
+                try:
+                    encrypted_file = Path(file_info["encrypted"])
+                    relative_path = file_info["relative_path"]
+                    
+                    # Créer le chemin de sortie
+                    output_file = output_folder / relative_path
+                    output_file.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Déchiffrer le fichier
+                    pyAesCrypt.decryptFile(str(encrypted_file), str(output_file), password, 64*1024)
+                    
+                    decrypted_files.append({
+                        "encrypted": str(encrypted_file),
+                        "decrypted": str(output_file),
+                        "relative_path": relative_path
+                    })
+                    successful_decryptions += 1
+                    
+                except Exception as e:
+                    print(f"⚠️ Erreur déchiffrement {file_info['relative_path']}: {e}")
+            
+            return {
+                "success": True,
+                "output_folder": str(output_folder),
+                "total_files": metadata["total_files"],
+                "decrypted_files": successful_decryptions,
+                "file_list": decrypted_files,
+                "original_metadata": metadata
+            }
+            
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
 # ================================
 # AGENT PRINCIPAL
@@ -578,7 +745,7 @@ Réponds en français, sois précis et professionnel."""
         return secret_input == self.secret_phrase
     
     def list_files(self):
-        """Liste les fichiers dans le vault"""
+        """Liste les files dans le vault"""
         return self.vault_manager.list_files()
     
     def get_stats(self):
@@ -591,7 +758,7 @@ Réponds en français, sois précis et professionnel."""
         
         # Afficher les stats
         stats = self.get_stats()
-        print(f"📊 Vault: {stats['total_files']} fichiers, {stats['total_size']} bytes")
+        print(f"📊 Vault: {stats['total_files']} files, {stats['total_size']} bytes")
         
         # Créer un fichier de test
         test_file = BASE_DIR / "test_demo.txt"
@@ -821,7 +988,7 @@ class SecurityServer:
         
         # Affichage des statistiques
         stats = self.agent.get_stats()
-        print(f"📊 Vault: {stats['total_files']} fichiers, {stats['total_size']} bytes")
+        print(f"📊 Vault: {stats['total_files']} files, {stats['total_size']} bytes")
         
         print("✅ Agent de sécurité prêt!")
         print("🔗 Utilisez l'interface Streamlit pour interagir avec l'agent")
@@ -850,7 +1017,7 @@ class SecurityServer:
                     files = self.agent.list_files()
                     if files:
                         print("📁 Fichiers dans le vault:")
-                        for file in files[:5]:  # Afficher max 5 fichiers
+                        for file in files[:5]:  # Afficher max 5 files
                             print(f"   • {file['filename']} ({file['uuid'][:8]}...)")
                 
                 elif command == "help":

@@ -49,6 +49,27 @@ coverage.xml
 .pytest_cache/
 cover/
 
+# Specific to this project - files to ignore
+# Test files and reports
+test_*.py
+demo_*.py
+validation_*.py
+*_report_*.json
+*_analysis.json
+*.log
+
+# Organized folders (results of organization)
+organized_*/
+results_*/
+
+# Encrypted/decrypted temporary folders
+encrypted/
+decrypted/
+vault/
+
+# Logs
+logs/
+
 # Translations
 *.mo
 *.pot

@@ -4,7 +4,7 @@ Agent IA NLP - Version Agent Autonome
 ====================================
 
 Agent IA autonome qui peut :
-- Analyser des fichiers et détecter les PII
+- Analyser des files et détecter les PII
 - Raisonner sur les tâches à accomplir
 - Planifier ses actions
 - Utiliser des outils de manière autonome
@@ -72,7 +72,7 @@ PII_REGEXES: Dict[str, re.Pattern] = {
 }
 
 # ──────────────────────────────────────────────────────────────────────────
-# Fonctions utilitaires pour le traitement de fichiers
+# Fonctions utilitaires pour le traitement de files
 # ──────────────────────────────────────────────────────────────────────────
 
 def extract_pdf_content(file_path: str) -> str:
@@ -146,7 +146,7 @@ def read_file_tool(file_path: str) -> str:
             else:
                 return f"Erreur: Aucune bibliothèque PDF disponible pour lire '{file_path}'"
         else:
-            # Traitement fichiers texte
+            # Traitement files texte
             with open(full_path, 'r', encoding='utf-8') as file:
                 content = file.read()
             return f"Contenu du fichier '{file_path}':\n{content}"
@@ -225,7 +225,7 @@ Texte à analyser :
 {text}
 
 Réponds UNIQUEMENT par:
-- "AUCUNE_PII" si aucune information personnelle réelle n'est détectée
+- "NONE_PII" si aucune information personnelle réelle n'est détectée
 - "PII_DETECTEES" si des PII réelles sont présentes
 
 Réponse:"""
@@ -233,7 +233,7 @@ Réponse:"""
             response = llm.invoke(prompt)
             response = response.strip()
             
-            if "AUCUNE_PII" in response.upper():
+            if "NONE_PII" in response.upper():
                 return "✅ Aucune PII détectée par l'IA. Le fichier semble sûr."
             elif "PII_DETECTEES" in response.upper():
                 pii_types = response.split(":")[1].strip() if ":" in response else response
@@ -294,13 +294,13 @@ def save_json_tool(data: str, filename: str) -> str:
 @tool
 def list_files_tool(directory: str = ".") -> str:
     """
-    Liste les fichiers dans un répertoire.
+    Liste les files dans un répertoire.
     
     Args:
         directory: Répertoire à explorer (par défaut le répertoire courant)
         
     Returns:
-        Liste des fichiers du répertoire
+        Liste des files du répertoire
     """
     try:
         files = []
@@ -313,18 +313,18 @@ def list_files_tool(directory: str = ".") -> str:
         
         return f"Contenu du répertoire '{directory}':\n" + "\n".join(files)
     except Exception as e:
-        return f"Erreur lors de la liste des fichiers: {str(e)}"
+        return f"Erreur lors de la liste des files: {str(e)}"
 
 @tool
 def process_multiple_files_tool(file_paths: str) -> str:
     """
-    Traite plusieurs fichiers en une seule fois.
+    Traite plusieurs files en une seule fois.
     
     Args:
-        file_paths: Liste des chemins des fichiers séparés par des virgules
+        file_paths: Liste des chemins des files séparés par des virgules
         
     Returns:
-        Résumé du traitement de tous les fichiers
+        Résumé du traitement de tous les files
     """
     try:
         paths = [path.strip() for path in file_paths.split(',')]
@@ -348,7 +348,7 @@ def process_multiple_files_tool(file_paths: str) -> str:
             else:
                 results.append(f"⚠️ {file_path}: Fichier non trouvé")
         
-        return f"Traitement de {len(paths)} fichiers:\n" + "\n".join(results)
+        return f"Traitement de {len(paths)} files:\n" + "\n".join(results)
     except Exception as e:
         return f"Erreur lors du traitement multiple: {str(e)}"
 
@@ -391,8 +391,8 @@ Tu as accès aux outils suivants:
 2. generate_smart_summary_tool(text) - Génère un résumé intelligent
 3. detect_pii_tool(text) - Détecte les PII
 4. save_json_tool(data, filename) - Sauvegarde en JSON
-5. list_files_tool(directory) - Liste les fichiers
-6. process_multiple_files_tool(file_paths) - Traite plusieurs fichiers (séparés par des virgules)
+5. list_files_tool(directory) - Liste les files
+6. process_multiple_files_tool(file_paths) - Traite plusieurs files (séparés par des virgules)
 
 Utilise le format de raisonnement suivant:
 Thought: [Ce que je dois faire]
@@ -510,7 +510,7 @@ Texte à analyser :
 {content}
 
 Réponds UNIQUEMENT par:
-- "AUCUNE_PII" si aucune information personnelle réelle n'est détectée
+- "NONE_PII" si aucune information personnelle réelle n'est détectée
 - "PII_DETECTEES" si des PII réelles sont présentes
 
 Réponse:"""
@@ -567,7 +567,7 @@ Réponse:"""
                     content = "Erreur: Aucune bibliothèque PDF disponible"
                     print("⚠️ Aucune bibliothèque PDF disponible")
             else:
-                # Traitement fichiers texte
+                # Traitement files texte
                 with open(full_path, 'r', encoding='utf-8') as file:
                     content = file.read()
                 print(f"📄 Contenu texte lu ({len(content)} caractères)")
@@ -625,7 +625,7 @@ Réponse:"""
                     content = "Erreur: Aucune bibliothèque PDF disponible"
                     print("⚠️ Aucune bibliothèque PDF disponible")
             else:
-                # Traitement fichiers texte
+                # Traitement files texte
                 with open(full_path, 'r', encoding='utf-8') as file:
                     content = file.read()
                 print(f"📄 Contenu texte lu ({len(content)} caractères)")
@@ -662,15 +662,15 @@ Réponse:"""
             except Exception as e:
                 return f"Erreur lors du chat: {e}"
         else:
-            return "Mode offline activé. Utilisez les commandes directes pour traiter les fichiers."
+            return "Mode offline activé. Utilisez les commandes directes pour traiter les files."
     
     def process_multiple_files_with_reasoning(self, file_paths: List[str]) -> Dict[str, Any]:
-        """Traite plusieurs fichiers en utilisant le raisonnement de l'agent IA"""
+        """Traite plusieurs files en utilisant le raisonnement de l'agent IA"""
         results = {}
         summary_results = []
         total_warnings = 0
         
-        print(f"🔄 Traitement de {len(file_paths)} fichiers...")
+        print(f"🔄 Traitement de {len(file_paths)} files...")
         
         for i, file_path in enumerate(file_paths, 1):
             print(f"\n📄 Traitement du fichier {i}/{len(file_paths)}: {file_path}")
@@ -721,7 +721,7 @@ Réponse:"""
         with open(batch_output_file, 'w', encoding='utf-8') as f:
             json.dump(batch_summary, f, indent=2, ensure_ascii=False)
         
-        print(f"✅ Traitement terminé: {len(results)} fichiers traités, {total_warnings} avec PII")
+        print(f"✅ Traitement terminé: {len(results)} files traités, {total_warnings} avec PII")
         return batch_summary
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -733,12 +733,12 @@ def process_file(file_path: str, offline_mode: bool = False) -> Dict[str, Any]:
     return agent.process_file_with_reasoning(file_path)
 
 def process_multiple_files(file_paths: List[str], offline_mode: bool = False) -> Dict[str, Any]:
-    """Traite plusieurs fichiers et retourne le résultat JSON global"""
+    """Traite plusieurs files et retourne le résultat JSON global"""
     agent = AgentIA(llm if not offline_mode else None, offline_mode)
     return agent.process_multiple_files_with_reasoning(file_paths)
 
 def process_directory(directory_path: str, file_extensions: List[str] = None, offline_mode: bool = False) -> Dict[str, Any]:
-    """Traite tous les fichiers d'un répertoire avec extensions spécifiées"""
+    """Traite tous les files d'un répertoire avec extensions spécifiées"""
     if file_extensions is None:
         file_extensions = ['.txt', '.py', '.md', '.json', '.csv', '.xml', '.html', '.log', '.pdf']
     
@@ -757,11 +757,11 @@ def process_directory(directory_path: str, file_extensions: List[str] = None, of
         print(f"⚠️ Aucun fichier trouvé dans {directory_path} avec les extensions {file_extensions}")
         return {"error": "Aucun fichier trouvé"}
     
-    print(f"📁 Traitement du répertoire {directory_path}: {len(file_paths)} fichiers trouvés")
+    print(f"📁 Traitement du répertoire {directory_path}: {len(file_paths)} files trouvés")
     return process_multiple_files(file_paths, offline_mode)
 
 def process_file_patterns(patterns: List[str], offline_mode: bool = False) -> Dict[str, Any]:
-    """Traite des fichiers selon des patterns (glob patterns)"""
+    """Traite des files selon des patterns (glob patterns)"""
     import glob
     
     file_paths = []
@@ -777,7 +777,7 @@ def process_file_patterns(patterns: List[str], offline_mode: bool = False) -> Di
         print(f"⚠️ Aucun fichier trouvé avec les patterns {patterns}")
         return {"error": "Aucun fichier trouvé"}
     
-    print(f"🔍 Traitement par patterns: {len(file_paths)} fichiers trouvés")
+    print(f"🔍 Traitement par patterns: {len(file_paths)} files trouvés")
     return process_multiple_files(file_paths, offline_mode)
 
 def process_file_to_json_string(file_path: str, offline_mode: bool = False) -> str:
@@ -818,7 +818,7 @@ def chat_mode():
                 print("""
 🤖 Commandes disponibles:
 - Analysez un fichier: "Analyse le fichier recit.txt" ou "Analyse le fichier document.pdf"
-- Listez les fichiers: "Quels fichiers sont disponibles?"
+- Listez les files: "Quels files sont disponibles?"
 - Posez des questions: "Résume-moi ce document"
 - Détection PII: "Y a-t-il des informations sensibles?"
 - quit/exit: Quitter le chat
@@ -841,7 +841,7 @@ def chat_mode():
             print(f"\n❌ Erreur: {e}")
 
 def test_agent():
-    """Test de l'agent IA avec différents fichiers"""
+    """Test de l'agent IA avec différents files"""
     print("=== Test Agent IA NLP ===\n")
     
     # Test 1: Fichier sans PII
@@ -917,10 +917,10 @@ def test_agent():
     test_batch_processing()
 
 def test_batch_processing():
-    """Test du traitement en lot avec plusieurs fichiers"""
+    """Test du traitement en lot avec plusieurs files"""
     print("=== Test Traitement en Lot ===\n")
     
-    # Créer des fichiers de test
+    # Créer des files de test
     test_files = {
         "test_batch_1.txt": "Ceci est un document de test simple sans informations sensibles.",
         "test_batch_2.txt": """
@@ -932,13 +932,13 @@ def test_batch_processing():
         "test_batch_3.txt": "Un autre document de test avec du contenu normal pour l'analyse."
     }
     
-    # Créer les fichiers
+    # Créer les files
     for filename, content in test_files.items():
         with open(filename, 'w', encoding='utf-8') as f:
             f.write(content)
     
     try:
-        print("1. Test du traitement en lot de 3 fichiers")
+        print("1. Test du traitement en lot de 3 files")
         print("-" * 50)
         
         file_paths = list(test_files.keys())
@@ -962,7 +962,7 @@ def test_batch_processing():
     except Exception as e:
         print(f"Erreur lors du test: {e}")
     finally:
-        # Nettoyer les fichiers de test
+        # Nettoyer les files de test
         for filename in test_files.keys():
             if os.path.exists(filename):
                 os.remove(filename)
@@ -981,7 +981,7 @@ def main():
         print("=========================================================")
         print("🤖 Agent IA autonome avec capacité de raisonnement")
         print("📄 Support PDF intégré (PyPDF2 + PyMuPDF)")
-        print("🔄 Traitement en lot de multiples fichiers")
+        print("🔄 Traitement en lot de multiples files")
         print("\nUsage:")
         print("  python agent_nlp.py <fichier>                    # Analyse avec agent IA")
         print("  python agent_nlp.py <fichier> <sortie.json>      # Sauvegarde personnalisée")
@@ -1007,7 +1007,7 @@ def main():
         print("  💭 Mémoire conversationnelle")
         print("  🔍 Analyse contextuelle avancée")
         print("  📄 Support PDF natif avec extraction de texte")
-        print("  🔄 Traitement en lot de multiples fichiers")
+        print("  🔄 Traitement en lot de multiples files")
         print("\nFormat de sortie JSON:")
         print('  Fichier unique: {"file_path": "...", "resume": "...", "warning": true/false}')
         print('  Traitement en lot: {"batch_info": {...}, "files": [...], "detailed_results": {...}}')
@@ -1024,7 +1024,7 @@ def main():
     # Traitement en lot
     if sys.argv[1] == "--batch":
         if len(sys.argv) < 3:
-            print("❌ Erreur: Veuillez spécifier les fichiers à traiter")
+            print("❌ Erreur: Veuillez spécifier les files à traiter")
             print("Exemple: python agent_nlp.py --batch fichier1.txt,fichier2.txt")
             return
         
@@ -1032,7 +1032,7 @@ def main():
         offline_mode = len(sys.argv) > 3 and sys.argv[3] == "--offline"
         
         try:
-            print(f"🔄 Traitement en lot de {len(file_paths)} fichiers...")
+            print(f"🔄 Traitement en lot de {len(file_paths)} files...")
             result = process_multiple_files(file_paths, offline_mode)
             print(f"✅ Traitement terminé! Résultat sauvegardé dans le fichier JSON")
         except Exception as e:
@@ -1097,7 +1097,7 @@ def main():
                 test_response = llm.invoke("Test")
                 print("✅ Agent IA prêt")
             except:
-                print("⚠️ Connexion Ollama échouée, passage en mode offline")
+                print("⚠️ Ollama connection failed, passage en mode offline")
                 offline_mode = True
         else:
             print("📋 Mode offline activé")
