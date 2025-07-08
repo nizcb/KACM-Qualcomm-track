@@ -1,0 +1,45 @@
+# Système Multi-Agents MCP Complet # Bases de donnéesKACM Qualcomm
+# Version avec vrais agents MCP, pas de simulation
+
+# Core MCP
+mcp>=1.0.0
+fastmcp>=0.2.0
+pydantic>=2.0.0
+
+# AI et NLP
+requests>=2.31.0
+transformers>=4.30.0
+torch>=2.0.0
+tokenizers>=0.13.0
+
+# Traitement de fichiers
+PyPDF2>=3.0.0
+python-magic>=0.4.27
+pillow>=10.0.0
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# Audio processing
+SpeechRecognition>=3.10.0
+pydub>=0.25.0
+
+# Sécurité et chiffrement
+cryptography>=41.0.0
+bcrypt>=4.0.0
+
+# Interface et serveur
+fastapi>=0.100.0
+uvicorn>=0.23.0
+httpx>=0.24.0
+websockets>=11.0.0
+
+# Base de données
+sqlalchemy>=2.0.0
+
+# Monitoring
+psutil>=5.9.0
+rich>=13.0.0
+
+# Dev et tests
+pytest>=7.4.0
+black>=23.0.0

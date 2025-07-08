@@ -1,0 +1,26 @@
+RAPPORT MÉDICAL CONFIDENTIEL
+===========================
+
+Patient: Dr. Jean Dupont
+Numéro de sécurité sociale: 1 85 03 75 123 456 78
+Téléphone: +33 6 12 34 56 78
+Email: jean.dupont@gmail.com
+Adresse: 25 rue de la Paix, 75001 Paris
+
+Date de consultation: 15 décembre 2024
+Médecin traitant: Dr. Marie Martin
+
+DIAGNOSTIC:
+Le patient présente des symptômes compatibles avec une hypertension artérielle.
+Pression artérielle mesurée: 160/95 mmHg
+
+PRESCRIPTION:
+- Amlodipine 5mg, 1 comprimé par jour
+- Contrôle dans 3 mois
+
+Numéro de carte bancaire pour paiement: 4532 1234 5678 9012
+Code de sécurité: 123
+Date d'expiration: 12/2027
+
+CONFIDENTIALITÉ:
+Ce document contient des informations médicales sensibles et ne doit pas être divulgué.

@@ -1,0 +1,46 @@
+{
+  "clients": [
+    {
+      "id": 1,
+      "nom": "Martin",
+      "prenom": "Sophie",
+      "email": "sophie.martin@entreprise.com",
+      "telephone": "+33 1 42 86 13 57",
+      "adresse": {
+        "rue": "15 avenue des Champs-Élysées",
+        "ville": "Paris",
+        "code_postal": "75008",
+        "pays": "France"
+      },
+      "date_naissance": "1985-03-15",
+      "numero_client": "CLI-2024-001",
+      "statut": "actif"
+    },
+    {
+      "id": 2,
+      "nom": "Dubois",
+      "prenom": "Pierre",
+      "email": "p.dubois@email.fr",
+      "telephone": "+33 6 78 90 12 34",
+      "adresse": {
+        "rue": "42 rue de la République",
+        "ville": "Lyon",
+        "code_postal": "69001",
+        "pays": "France"
+      },
+      "date_naissance": "1978-11-28",
+      "numero_client": "CLI-2024-002",
+      "statut": "actif",
+      "carte_bancaire": {
+        "numero": "5555 4444 3333 2222",
+        "expiration": "06/2026",
+        "cvv": "789"
+      }
+    }
+  ],
+  "metadata": {
+    "export_date": "2024-12-15",
+    "total_clients": 2,
+    "version": "2.1"
+  }
+}

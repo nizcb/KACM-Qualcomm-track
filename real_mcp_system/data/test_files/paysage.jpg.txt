@@ -1,0 +1,14 @@
+Ce fichier représente une photo de paysage.
+
+MÉTADONNÉES SIMULÉES:
+- Type: Photographie
+- Sujet: Paysage montagnard
+- Résolution: 1920x1080
+- Format: JPEG
+- Date de prise: 10 décembre 2024
+- Lieu: Alpes françaises
+
+ANALYSE VISION SIMULÉE:
+Cette image ne contient aucune information personnelle identifiable.
+Contenu: Montagnes enneigées, ciel bleu, aucune personne visible.
+Classification: Non sensible.

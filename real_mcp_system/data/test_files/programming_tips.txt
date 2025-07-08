@@ -1,0 +1,53 @@
+Programming Tips and Best Practices
+==================================
+
+## Clean Code Principles
+
+1. **Meaningful Names**
+   - Use descriptive variable names
+   - Avoid abbreviations
+   - Be consistent with naming conventions
+
+2. **Functions**
+   - Keep functions small and focused
+   - One function should do one thing
+   - Use clear parameter names
+
+3. **Comments**
+   - Write self-documenting code
+   - Use comments to explain WHY, not WHAT
+   - Keep comments up to date
+
+## Python Best Practices
+
+```python
+# Good example
+def calculate_monthly_payment(principal, interest_rate, years):
+    """Calculate monthly mortgage payment."""
+    monthly_rate = interest_rate / 12
+    num_payments = years * 12
+    return principal * (monthly_rate * (1 + monthly_rate) ** num_payments) / ((1 + monthly_rate) ** num_payments - 1)
+
+# Bad example
+def calc(p, r, y):
+    # calculate payment
+    mr = r / 12
+    np = y * 12
+    return p * (mr * (1 + mr) ** np) / ((1 + mr) ** np - 1)
+```
+
+## Testing
+
+- Write unit tests for all functions
+- Use descriptive test names
+- Test edge cases
+- Aim for high code coverage
+
+## Version Control
+
+- Make atomic commits
+- Write clear commit messages
+- Use branching strategies
+- Review code before merging
+
+This document contains general programming advice and no sensitive information.

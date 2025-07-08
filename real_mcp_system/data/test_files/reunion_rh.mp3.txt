@@ -1,0 +1,17 @@
+Ce fichier représente un enregistrement audio d'une réunion d'entreprise.
+
+MÉTADONNÉES SIMULÉES:
+- Durée: 15 minutes 30 secondes
+- Participants: 5 personnes
+- Format: MP3, 128kbps
+- Date: 15 décembre 2024
+
+TRANSCRIPTION SIMULÉE:
+"Bonjour à tous, je suis Marie Martin, directrice des ressources humaines.
+Nous allons discuter des nouveaux salaires pour 2025.
+Sarah Johnson passera de 58 000 à 62 000 euros.
+Son numéro de sécurité sociale est le 1 85 03 75 123 456 78.
+Son téléphone personnel est le 06 12 34 56 78 pour la contacter en urgence."
+
+ANALYSE AUDIO SIMULÉE:
+Cet enregistrement contient des informations personnelles sensibles (salaires, numéros de téléphone, SSN).

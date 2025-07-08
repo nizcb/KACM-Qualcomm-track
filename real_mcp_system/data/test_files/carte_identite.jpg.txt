@@ -1,0 +1,13 @@
+Ce fichier représente une image de carte d'identité française.
+
+MÉTADONNÉES SIMULÉES:
+- Type: Document d'identité
+- Nom visible: MARTIN Sophie
+- Date de naissance: 15/03/1985
+- Numéro CNI: 850315-75012-001
+- Adresse: 15 avenue des Champs-Élysées, 75008 Paris
+- Photo: Oui
+- Signature: Oui
+
+ANALYSE VISION SIMULÉE:
+Cette image contient des informations personnelles sensibles qui doivent être protégées selon le RGPD.

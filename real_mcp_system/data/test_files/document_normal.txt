@@ -1,0 +1,36 @@
+RAPPORT TECHNIQUE - PROJET KACM
+===============================
+
+Date: 15 décembre 2024
+Auteur: Équipe Technique
+Version: 1.0
+
+RÉSUMÉ EXÉCUTIF:
+Ce rapport présente les avancées techniques du projet KACM dans le cadre du hackathon Qualcomm.
+
+TECHNOLOGIES UTILISÉES:
+- Python 3.9+
+- Protocol MCP (Model Context Protocol)
+- Ollama / Llama 3.2:1b
+- FastAPI pour les APIs REST
+- SQLite pour la persistance
+- Langchain pour l'orchestration IA
+
+ARCHITECTURE:
+Le système est composé de 6 agents spécialisés:
+1. Agent Orchestrateur (coordination)
+2. Agent NLP (traitement de texte)
+3. Agent Vision (analyse d'images)
+4. Agent Audio (traitement audio)
+5. Agent File Manager (consolidation)
+6. Agent Security (chiffrement/déchiffrement)
+
+OBJECTIFS:
+- Détecter automatiquement les informations sensibles
+- Classifier et traiter différents types de fichiers
+- Sécuriser les données via chiffrement
+- Fournir une interface utilisateur intuitive
+
+STATUS: EN DÉVELOPPEMENT
+
+Ce document ne contient aucune information personnelle sensible.
