@@ -3,7 +3,7 @@ file_manager_agent.py
 
 An AI-powered agent that:
 - Reads data/{modality}/*.metadata.json
-- Uses LLaMA to infer a “topic” folder name from each summary
+- Uses Groq/Ollama to infer a "topic" folder name from each summary
 - Moves media + metadata into public/<topic>/ or secure/<topic>/
 - Builds a master index with file paths, topics, and metadata
 """
@@ -14,18 +14,33 @@ import subprocess
 import re
 from pathlib import Path
 
+# AI Backend imports
+try:
+    from .ai_backend import get_ai_backend, generate_text, is_ai_available
+    AI_BACKEND_AVAILABLE = True
+except ImportError:
+    AI_BACKEND_AVAILABLE = False
+
 class FileManagerAgent:
     def __init__(self,
                  data_root: Path = Path("data"),
                  public_dir: Path = None,
                  secure_dir: Path = None,
                  index_file: Path = None,
-                 model_name: str = "llama3"):
+                 model_name: str = "llama3.2:latest"):
         self.data_root  = data_root
         self.public_dir = public_dir or data_root / "public"
         self.secure_dir = secure_dir or data_root / "secure"
         self.index_file = index_file or data_root / "files_index.json"
         self.model_name = model_name
+        
+        # Initialize AI backend
+        self.ai_backend = None
+        if AI_BACKEND_AVAILABLE:
+            try:
+                self.ai_backend = get_ai_backend()
+            except Exception:
+                pass
 
         # Ensure top-level public/secure exist
         for d in (self.public_dir, self.secure_dir):
@@ -39,7 +54,7 @@ class FileManagerAgent:
 
     def infer_topic(self, summary: str) -> str:
         """
-        Ask LLaMA to produce a 1–3-word topic name describing the summary.
+        Ask AI to produce a 1–3-word topic name describing the summary.
         """
         prompt = f"""
 Given this brief summary, suggest a concise folder name (1–3 words, lowercase, no spaces) for grouping files on the same topic:
@@ -48,6 +63,18 @@ Given this brief summary, suggest a concise folder name (1–3 words, lowercase,
 
 Folder name:
 """
+        
+        # Try AI backend first (Groq/Ollama)
+        if self.ai_backend and is_ai_available():
+            try:
+                response = generate_text(self.ai_backend, prompt)
+                name = response.strip().splitlines()[0]
+                name = re.sub(r"[^\w-]", "", name.lower())
+                return name or "misc"
+            except Exception:
+                pass
+        
+        # Fallback to direct Ollama subprocess call
         try:
             result = subprocess.run(
                 ["ollama", "run", self.model_name, prompt],
@@ -130,6 +157,6 @@ if __name__ == "__main__":
     # Initialize agent; adjust model_name if needed
     agent = FileManagerAgent(
         data_root=Path("data"),
-        model_name="llama3"
+        model_name="llama3.2:latest"
     )
     agent.run()

@@ -27,13 +27,13 @@ logger = logging.getLogger(__name__)
 class AIConfig:
     """AI Backend Configuration"""
     groq_api_key: Optional[str] = None
-    groq_model: str = "llama-3.2-90b-text-preview"  # Fast Groq Llama model
+    groq_model: str = "llama-3.2-90b-text-preview"  
     ollama_model: str = "llama3.2:latest"
     ollama_base_url: str = "http://localhost:11434"
     temperature: float = 0.7
     max_tokens: int = 4000
     timeout: int = 30
-    prefer_groq: bool = True  # Use Groq if available
+    prefer_groq: bool = True  
     
 class AIBackend:
     """

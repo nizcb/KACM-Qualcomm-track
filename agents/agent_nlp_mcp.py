@@ -26,44 +26,57 @@ from dataclasses import dataclass
 from datetime import datetime
 from collections import Counter
 
-# Suppression des avertissements Pydantic
+# Suppress Pydantic warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# Imports MCP officiels
+# Official MCP imports
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp import Context
 from mcp.server.fastmcp import Image
 from mcp.types import TextContent
 from pydantic import BaseModel, Field
 
-# LangChain imports pour l'IA
+# AI Backend imports
+try:
+    from .ai_backend import get_ai_backend, generate_text, is_ai_available, get_ai_info
+    AI_BACKEND_AVAILABLE = True
+    print("✅ AI Backend available")
+except ImportError:
+    AI_BACKEND_AVAILABLE = False
+    print("⚠️ AI Backend not available")
+
+# LangChain imports for AI (fallback)
 try:
     from langchain_community.llms import Ollama
     from langchain.tools import tool
     LANGCHAIN_AVAILABLE = True
-    print("✅ LangChain disponible")
+    print("✅ LangChain available")
 except ImportError:
     LANGCHAIN_AVAILABLE = False
-    print("⚠️ LangChain non disponible")
+    print("⚠️ LangChain not available")
 
-# Support PDF
+# PDF Support
 try:
     import PyPDF2
     PDF_AVAILABLE = True
-    print("✅ Support PDF disponible (PyPDF2)")
+    print("✅ PDF support available (PyPDF2)")
 except ImportError:
     PDF_AVAILABLE = False
-    print("⚠️ Support PDF non disponible (pip install PyPDF2)")
+    print("⚠️ PDF support not available (pip install PyPDF2)")
 
 try:
     import fitz  # PyMuPDF
     PYMUPDF_AVAILABLE = True
-    print("✅ Support PDF avancé disponible (PyMuPDF)")
+    print("✅ Advanced PDF support available (PyMuPDF)")
 except ImportError:
     PYMUPDF_AVAILABLE = False
-    print("⚠️ Support PDF avancé non disponible (pip install pymupdf)")
+    print("⚠️ Advanced PDF support not available (pip install pymupdf)")
 
-# Configuration du logging avec support Unicode pour Windows
+# Ensure logs directory exists
+logs_dir = Path(__file__).parent.parent / "logs"
+logs_dir.mkdir(exist_ok=True)
+
+# Logging configuration with Unicode support for Windows
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -73,29 +86,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Configuration Ollama
+# Ollama Configuration (fallback)
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 LLAMA_MODEL = os.getenv("LLAMA_MODEL", "llama3.2:latest")
 
-# Initialisation du LLM
-llm = None
-if LANGCHAIN_AVAILABLE:
-    try:
-        llm = Ollama(
-            model=LLAMA_MODEL,
-            base_url=OLLAMA_BASE_URL,
-            temperature=0.7
-        )
-        # Test de connexion
-        test_response = llm.invoke("Test")
-        logger.info("✅ Ollama/Llama connecté avec succès")
-        print("✅ Agent IA Ollama/Llama prêt")
-    except Exception as e:
-        logger.warning(f"⚠️ Ollama connection failed: {e}")
-        print(f"⚠️ Ollama connection failed: {e}")
-        llm = None
+# Initialize AI Backend
+ai_backend = None
+llm = None  # Legacy compatibility - use ai_backend instead
 
-# Regex patterns avancés pour la détection PII
+if AI_BACKEND_AVAILABLE:
+    try:
+        ai_backend = get_ai_backend()
+        if ai_backend.is_available():
+            info = ai_backend.get_backend_info()
+            logger.info(f"✅ AI Backend ready: {info['backend']} ({info['model']})")
+            print(f"✅ AI Agent ready: {info['backend']} backend")
+            llm = ai_backend  # For legacy compatibility during transition
+        else:
+            logger.warning("⚠️ No AI backend available")
+            print("⚠️ No AI backend available")
+    except Exception as e:
+        logger.warning(f"⚠️ AI Backend initialization failed: {e}")
+        print(f"⚠️ AI Backend initialization failed: {e}")
+        ai_backend = None
+
+# Advanced regex patterns for PII detection
 PII_REGEXES: Dict[str, re.Pattern] = {
     "EMAIL": re.compile(r"[\w\.\-]+@[\w\.-]+\.[a-z]{2,}", re.I),
     "PHONE": re.compile(r"\+?\d{1,3}[\s\-]?\d[\d\s\-]{8,}\d", re.I),
@@ -104,22 +119,22 @@ PII_REGEXES: Dict[str, re.Pattern] = {
     "SSN": re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b"),
 }
 # ──────────────────────────────────────────────────────────────────────────
-# Fonctions utilitaires pour le traitement de files (identiques à l'original)
+# Utility functions for file processing (identical to original)
 # ──────────────────────────────────────────────────────────────────────────
 
 def extract_pdf_content(file_path: str) -> str:
     """
-    Extrait le contenu texte d'un fichier PDF.
+    Extract text content from a PDF file.
     
     Args:
-        file_path: Chemin vers le fichier PDF
+        file_path: Path to the PDF file
         
     Returns:
-        Contenu texte du PDF
+        Text content of the PDF
     """
     content = ""
     
-    # Essai avec PyMuPDF d'abord (plus performant)
+    # Try PyMuPDF first (more performant)
     if PYMUPDF_AVAILABLE:
         try:
             doc = fitz.open(file_path)
@@ -129,9 +144,9 @@ def extract_pdf_content(file_path: str) -> str:
             doc.close()
             return content
         except Exception as e:
-            logger.warning(f"⚠️ Erreur PyMuPDF: {e}")
+            logger.warning(f"⚠️ PyMuPDF error: {e}")
     
-    # Fallback avec PyPDF2
+    # Fallback with PyPDF2
     if PDF_AVAILABLE:
         try:
             with open(file_path, 'rb') as file:
@@ -141,9 +156,9 @@ def extract_pdf_content(file_path: str) -> str:
                     content += page.extract_text() + "\n"
             return content
         except Exception as e:
-            return f"Erreur lors de l'extraction PDF: {str(e)}"
+            return f"Error during PDF extraction: {str(e)}"
     
-    return "Aucune bibliothèque PDF disponible"
+    return "No PDF library available"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Configuration et modèles avancés (mis à jour avec les capacités de l'original)
@@ -202,142 +217,144 @@ class TranslationResult(BaseModel):
 class BatchProcessingResult(BaseModel):
     """Résultat du traitement en lot"""
     batch_info: Dict[str, Any] = Field(description="Informations du lot")
-    files: List[Dict[str, Any]] = Field(description="Résumé des files")
+    files: List[Dict[str, Any]] = Field(description="Summary of files")
     detailed_results: Dict[str, Any] = Field(description="Résultats détaillés")
 
 # ──────────────────────────────────────────────────────────────────────────
 # Agent IA Principal (identique à l'original avec intégration MCP)
 # ──────────────────────────────────────────────────────────────────────────
 class NLPAgent:
-    """Agent IA autonome pour l'analyse NLP avec capacité de raisonnement - Version MCP"""
+    """Autonomous AI agent for NLP analysis with reasoning capabilities - MCP Version"""
     
     def __init__(self, config: NLPConfig):
         self.config = config
-        self.llm = llm if not config.offline_mode else None
-        self.conversation_history = []  # Mémoire simple
+        # Use the global ai_backend for AI capabilities
+        self.ai_backend = ai_backend if not config.offline_mode else None
+        self.llm = self.ai_backend  # Legacy compatibility
+        self.conversation_history = []  # Simple memory
         self.setup_logging()
         
     def setup_logging(self):
-        """Configuration du logging"""
+        """Setup logging configuration"""
         os.makedirs(os.path.dirname(self.config.log_file), exist_ok=True)
         handler = logging.FileHandler(self.config.log_file)
         handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         logger.addHandler(handler)
         
     def _generate_smart_summary(self, content: str) -> str:
-        """Génère un résumé intelligent avec LLM si disponible (identique à l'original)"""
-        if not self.config.offline_mode and self.llm:
+        """Generate intelligent summary with AI if available"""
+        if not self.config.offline_mode and self.ai_backend:
             try:
-                prompt = f"""Résume le texte suivant en 3 phrases maximum en français, en gardant les informations essentielles :
+                prompt = f"""Summarize the following text in maximum 3 sentences in English, keeping essential information:
 
-Texte : {content}
+Text: {content}
 
-Résumé :
-Ne commence jamais le résumé par une introduction de type "Voici le résumé" ou similaire.
+Summary:
+Never start the summary with an introduction like "Here is the summary" or similar.
 """
-                response = self.llm.invoke(prompt)
+                response = generate_text(self.ai_backend, prompt)
                 return response.strip()
             except Exception as e:
-                logger.warning(f"⚠️ Erreur LLM, passage en mode offline : {e}")
+                logger.warning(f"⚠️ AI error, switching to offline mode: {e}")
         
-        # Fallback : résumé simple
+        # Fallback: simple summary
         sentences = content.replace('\n', ' ').split('.')
         summary_sentences = []
         for sentence in sentences:
             if sentence.strip() and len(summary_sentences) < 3:
                 summary_sentences.append(sentence.strip())
         
-        return '. '.join(summary_sentences) + '.' if summary_sentences else "Résumé non disponible."
+        return '. '.join(summary_sentences) + '.' if summary_sentences else "Summary not available."
 
     def _detect_pii_intelligent(self, content: str) -> bool:
-        """Détecte les PII avec IA si disponible, sinon utilise regex (identique à l'original)"""
-        if not self.config.offline_mode and self.llm:
+        """Detect PII with AI if available, otherwise use regex"""
+        if not self.config.offline_mode and self.ai_backend:
             try:
-                prompt = f"""Tu es un expert en sécurité des données. Analyse le texte suivant et détecte UNIQUEMENT les informations personnelles identifiables (PII) réelles présentes.
+                prompt = f"""You are a data security expert. Analyze the following text and detect ONLY real personally identifiable information (PII) present.
 
-Types de PII à rechercher avec attention au contexte:
-- Adresses email réelles (pas d'exemples fictifs)
-- Numéros de téléphone réels
-- Numéros de carte bancaire/crédit réels (pas 4242 4242 4242 4242)
-- Codes IBAN/RIB réels
-- Numéros de sécurité sociale réels
-- Adresses postales complètes réelles
-- Dates de naissance spécifiques
-- Numéros d'identité/passeport réels
-- Noms et prénoms complets de personnes réelles
+Types of PII to look for with attention to context:
+- Real email addresses (not fictional examples)
+- Real phone numbers
+- Real credit card numbers (not test numbers like 4242 4242 4242 4242)
+- Real IBAN/account numbers
+- Real social security numbers
+- Complete real postal addresses
+- Specific birth dates
+- Real ID/passport numbers
+- Full names of real people
 
-IMPORTANT: Ignore les exemples fictifs, les données de test, les placeholders, et les données manifestement fausses.
+IMPORTANT: Ignore fictional examples, test data, placeholders, and obviously fake data.
 
-Texte à analyser :
+Text to analyze:
 {content}
 
-Réponds UNIQUEMENT par:
-- "NONE_PII" si aucune information personnelle réelle n'est détectée
-- "PII_DETECTEES" si des PII réelles sont présentes
+Respond ONLY with:
+- "NO_PII" if no real personal information is detected
+- "PII_DETECTED" if real PII is present
 
-Réponse:"""
+Response:"""
                 
-                response = self.llm.invoke(prompt)
+                response = generate_text(self.ai_backend, prompt)
                 response = response.strip().upper()
                 
-                if "PII_DETECTEES" in response:
-                    logger.info("[PII] PII détectées par l'IA")
+                if "PII_DETECTED" in response:
+                    logger.info("[PII] PII detected by AI")
                     return True
                 else:
-                    logger.info("[OK] Aucune PII détectée par l'IA")
+                    logger.info("[OK] No PII detected by AI")
                     return False
                     
             except Exception as e:
-                logger.warning(f"⚠️ Erreur LLM pour PII, passage en mode regex : {e}")
+                logger.warning(f"⚠️ AI error for PII detection, switching to regex mode: {e}")
         
-        # Fallback : détection par regex
+        # Fallback: regex detection
         for label, pattern in PII_REGEXES.items():
             if pattern.search(content):
-                logger.info(f"[PII] PII détectées par regex: {label}")
+                logger.info(f"[PII] PII detected by regex: {label}")
                 return True
         
-        logger.info("[OK] Aucune PII détectée par regex")
+        logger.info("[OK] No PII detected by regex")
         return False
     
     def reason_and_act(self, query: str) -> str:
-        """Raisonne et agit sur une requête donnée (identique à l'original)"""
-        if not self.llm or self.config.offline_mode:
-            return "Agent IA non disponible, utilisation du mode fallback"
+        """Reason and act on a given query using ReAct pattern"""
+        if not self.ai_backend or self.config.offline_mode:
+            return "AI Agent not available, using fallback mode"
         
-        # Template de raisonnement ReAct simplifié
-        prompt = f"""Tu es un agent IA spécialisé en analyse NLP et détection PII.
+        # Simplified ReAct reasoning template
+        prompt = f"""You are an AI agent specialized in NLP analysis and PII detection.
 
-Tu as accès aux outils suivants:
-1. read_file_tool(file_path) - Lit un fichier (texte ou PDF)
-2. generate_smart_summary_tool(text) - Génère un résumé intelligent
-3. detect_pii_tool(text) - Détecte les PII
-4. save_json_tool(data, filename) - Sauvegarde en JSON
-5. list_files_tool(directory) - Liste les files
-6. process_multiple_files_tool(file_paths) - Traite plusieurs files (séparés par des virgules)
+You have access to the following tools:
+1. read_file_tool(file_path) - Read a file (text or PDF)
+2. generate_smart_summary_tool(text) - Generate intelligent summary
+3. detect_pii_tool(text) - Detect PII
+4. save_json_tool(data, filename) - Save to JSON
+5. list_files_tool(directory) - List files
+6. process_multiple_files_tool(file_paths) - Process multiple files (comma-separated)
 
-Utilise le format de raisonnement suivant:
-Thought: [Ce que je dois faire]
-Action: [Outil à utiliser]
-Action Input: [Paramètres de l'outil]
-Observation: [Résultat de l'action]
-... (répète si nécessaire)
-Final Answer: [Réponse finale]
+Use the following reasoning format:
+Thought: [What I need to do]
+Action: [Tool to use]
+Action Input: [Tool parameters]
+Observation: [Action result]
+... (repeat if necessary)
+Final Answer: [Final response]
 
 Question: {query}
 
-Commence par réfléchir:"""
+Start by thinking:"""
 
         try:
-            # Génération de la réponse avec raisonnement
-            response = self.llm.invoke(prompt)
+            # Generate response with reasoning
+            response = generate_text(self.ai_backend, prompt)
             
-            # Traitement de la réponse pour extraire les actions
+            # Process response to extract actions
             return self._process_reasoning_response(response, query)
         except Exception as e:
-            return f"Erreur lors du raisonnement: {e}"
+            return f"Error during reasoning: {e}"
     
     def _process_reasoning_response(self, response: str, original_query: str) -> str:
-        """Traite la réponse de raisonnement et exécute les actions (identique à l'original)"""
+        """Process reasoning response and execute actions"""
         lines = response.split('\n')
         result = []
         
@@ -348,17 +365,17 @@ Commence par réfléchir:"""
                 result.append(f"[ACTION] Action: {action}")
             elif line.startswith('Thought:'):
                 thought = line.replace('Thought:', '').strip()
-                result.append(f"[THOUGHT] Reflexion: {thought}")
+                result.append(f"[THOUGHT] Thinking: {thought}")
             elif line.startswith('Final Answer:'):
                 answer = line.replace('Final Answer:', '').strip()
-                result.append(f"[ANSWER] Reponse finale: {answer}")
+                result.append(f"[ANSWER] Final response: {answer}")
         
         return '\n'.join(result) if result else response
     
     def process_file_with_reasoning(self, file_path: str) -> Dict[str, Any]:
-        """Traite un fichier en utilisant le raisonnement de l'agent IA (identique à l'original)"""
+        """Process a file using AI agent reasoning"""
         
-        if self.llm and not self.config.offline_mode:
+        if self.ai_backend and not self.config.offline_mode:
             try:
                 # Utilisation de l'agent IA pour traiter le fichier
                 query = f"""Analyse le fichier '{file_path}' et produis un résultat JSON avec:
@@ -384,42 +401,42 @@ Commence par réfléchir:"""
             return self._fallback_process_file(file_path)
     
     def _execute_analysis(self, file_path: str) -> Dict[str, Any]:
-        """Exécute l'analyse avec les outils disponibles (identique à l'original)"""
+        """Execute analysis with available tools"""
         try:
-            # Lecture du fichier directement
-            logger.info("[READ] Lecture du fichier...")
+            # Read file directly
+            logger.info("[READ] Reading file...")
             if not os.path.isabs(file_path):
                 current_dir = os.getcwd()
                 full_path = os.path.join(current_dir, file_path)
             else:
                 full_path = file_path
             
-            # Vérifier l'extension du fichier
+            # Check file extension
             _, ext = os.path.splitext(full_path.lower())
             
             if ext == '.pdf':
-                # Traitement PDF
+                # PDF processing
                 if PDF_AVAILABLE or PYMUPDF_AVAILABLE:
                     content = extract_pdf_content(full_path)
-                    logger.info(f"[PDF] Contenu PDF extrait ({len(content)} caractères)")
+                    logger.info(f"[PDF] PDF content extracted ({len(content)} characters)")
                 else:
-                    content = "Erreur: Aucune bibliothèque PDF disponible"
-                    logger.warning("[WARN] Aucune bibliothèque PDF disponible")
+                    content = "Error: No PDF library available"
+                    logger.warning("[WARN] No PDF library available")
             else:
-                # Traitement files texte
+                # Process text files
                 with open(full_path, 'r', encoding='utf-8') as file:
                     content = file.read()
-                logger.info(f"[TEXT] Contenu texte lu ({len(content)} caractères)")
+                logger.info(f"[TEXT] Text content read ({len(content)} characters)")
             
-            # Génération du résumé intelligent
-            logger.info("[AI] Génération du résumé...")
+            # Generate intelligent summary
+            logger.info("[AI] Generating summary...")
             resume = self._generate_smart_summary(content)
             
-            # Détection PII intelligente
-            logger.info("[AI] Détection intelligente des PII...")
+            # Intelligent PII detection
+            logger.info("[AI] Intelligent PII detection...")
             pii_found = self._detect_pii_intelligent(content)
             
-            # Construction du résultat final
+            # Build final result
             result = {
                 "file_path": os.path.abspath(file_path),
                 "resume": resume,
@@ -442,39 +459,39 @@ Commence par réfléchir:"""
             }
     
     def _fallback_process_file(self, file_path: str) -> Dict[str, Any]:
-        """Traitement de fichier en mode fallback (sans agent IA) - identique à l'original"""
+        """File processing in fallback mode (without AI agent)"""
         try:
-            # Lecture du fichier directement
-            logger.info("[READ] Lecture du fichier...")
+            # Read file directly
+            logger.info("[READ] Reading file...")
             if not os.path.isabs(file_path):
                 current_dir = os.getcwd()
                 full_path = os.path.join(current_dir, file_path)
             else:
                 full_path = file_path
             
-            # Vérifier l'extension du fichier
+            # Check file extension
             _, ext = os.path.splitext(full_path.lower())
             
             if ext == '.pdf':
-                # Traitement PDF
+                # PDF processing
                 if PDF_AVAILABLE or PYMUPDF_AVAILABLE:
                     content = extract_pdf_content(full_path)
-                    logger.info(f"[PDF] Contenu PDF extrait ({len(content)} caractères)")
+                    logger.info(f"[PDF] PDF content extracted ({len(content)} characters)")
                 else:
-                    content = "Erreur: Aucune bibliothèque PDF disponible"
-                    logger.warning("[WARN] Aucune bibliothèque PDF disponible")
+                    content = "Error: No PDF library available"
+                    logger.warning("[WARN] No PDF library available")
             else:
-                # Traitement files texte
+                # Process text files
                 with open(full_path, 'r', encoding='utf-8') as file:
                     content = file.read()
-                logger.info(f"[TEXT] Contenu texte lu ({len(content)} caractères)")
+                logger.info(f"[TEXT] Text content read ({len(content)} characters)")
             
-            # Génération du résumé intelligent
-            logger.info("[AI] Génération du résumé...")
+            # Generate intelligent summary
+            logger.info("[AI] Generating summary...")
             resume = self._generate_smart_summary(content)
             
-            # Détection PII intelligente
-            logger.info("[AI] Détection intelligente des PII...")
+            # Intelligent PII detection
+            logger.info("[AI] Intelligent PII detection...")
             pii_found = self._detect_pii_intelligent(content)
             
             # Construction du résultat final
@@ -494,14 +511,14 @@ Commence par réfléchir:"""
             }
     
     def chat(self, message: str) -> str:
-        """Interface de chat avec l'agent IA (identique à l'original)"""
-        if self.llm and not self.config.offline_mode:
+        """Chat interface with AI agent"""
+        if self.ai_backend and not self.config.offline_mode:
             try:
                 return self.reason_and_act(message)
             except Exception as e:
-                return f"Erreur lors du chat: {e}"
+                return f"Error during chat: {e}"
         else:
-            return "Mode offline activé. Utilisez les commandes directes pour traiter les files."
+            return "Offline mode enabled. Use direct commands to process files."
     
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extraction de texte depuis un PDF"""
@@ -524,49 +541,49 @@ Commence par réfléchir:"""
         redacted_text = text
         
         try:
-            # Utilisation du LLM si disponible pour une détection intelligente
-            if self.llm and self.config.use_ai_analysis:
+            # Use AI if available for intelligent detection
+            if self.ai_backend and self.config.use_ai_analysis:
                 try:
-                    prompt = f"""Tu es un expert en sécurité des données. Analyse le texte suivant et détecte UNIQUEMENT les informations personnelles identifiables (PII) réelles présentes.
+                    prompt = f"""You are a data security expert. Analyze the following text and detect ONLY real personally identifiable information (PII) present.
 
-Types de PII à rechercher avec attention au contexte:
-- Adresses email réelles (pas d'exemples fictifs)
-- Numéros de téléphone réels
-- Numéros de carte bancaire/crédit réels (pas 4242 4242 4242 4242)
-- Codes IBAN/RIB réels
-- Numéros de sécurité sociale réels
-- Adresses postales complètes réelles
-- Dates de naissance spécifiques
-- Numéros d'identité/passeport réels
-- Noms et prénoms complets de personnes réelles
+Types of PII to look for with attention to context:
+- Real email addresses (not fictional examples)
+- Real phone numbers
+- Real credit card numbers (not test numbers like 4242 4242 4242 4242)
+- Real IBAN/account numbers
+- Real social security numbers
+- Complete real postal addresses
+- Specific birth dates
+- Real ID/passport numbers
+- Full names of real people
 
-IMPORTANT: Ignore les exemples fictifs, les données de test, les placeholders, et les données manifestement fausses.
+IMPORTANT: Ignore fictional examples, test data, placeholders, and obviously fake data.
 
-Texte à analyser :
+Text to analyze:
 {text}
 
-Réponds UNIQUEMENT par:
-- "NONE_PII" si aucune information personnelle réelle n'est détectée
-- "PII_DETECTEES: [types détectés]" si des PII réelles sont présentes
+Respond ONLY with:
+- "NO_PII" if no real personal information is detected
+- "PII_DETECTED: [detected types]" if real PII is present
 
-Réponse:"""
+Response:"""
                     
-                    response = self.llm.invoke(prompt)
+                    response = generate_text(self.ai_backend, prompt)
                     ai_analysis = response.strip()
                     
-                    if "NONE_PII" in response.upper():
+                    if "NO_PII" in response.upper():
                         found_pii = False
-                    elif "PII_DETECTEES" in response.upper():
+                    elif "PII_DETECTED" in response.upper():
                         found_pii = True
-                        # Extraire les types si spécifiés
+                        # Extract types if specified
                         if ":" in response:
                             types_part = response.split(":")[1].strip()
                             pii_types = [t.strip() for t in types_part.split(",")]
                         
-                except Exception as llm_error:
-                    logger.warning(f"⚠️ Erreur LLM pour PII, passage en mode regex : {llm_error}")
+                except Exception as ai_error:
+                    logger.warning(f"⚠️ AI error for PII detection, switching to regex mode: {ai_error}")
             
-            # Fallback ou complément : détection par regex
+            # Fallback or complement: regex detection
             if not ai_analysis or not found_pii:
                 regex_pii = []
                 
@@ -576,7 +593,7 @@ Réponse:"""
                         found_pii = True
                         regex_pii.append(label)
                         pii_count += len(matches)
-                        # Masquer les PII
+                        # Mask PII
                         redacted_text = pattern.sub(f"[{label}_REDACTED]", redacted_text)
                 
                 if regex_pii:
@@ -612,30 +629,30 @@ Réponse:"""
         word_freq = Counter(word.lower().strip('.,!?;:') for word in words if len(word) > 3)
         keywords = [word for word, freq in word_freq.most_common(10)]
         
-        # Détection de langue simple
+        # Simple language detection
         language = "fr" if any(word in text.lower() for word in ["le", "la", "de", "et", "à"]) else "en"
         
-        # Sentiment par défaut
+        # Default sentiment
         sentiment = "neutral"
         ai_summary = None
         
-        # Utilisation de l'IA si disponible
-        if self.llm and self.config.use_ai_analysis:
+        # Use AI if available
+        if self.ai_backend and self.config.use_ai_analysis:
             try:
-                # Analyse du sentiment avec l'IA
-                sentiment_prompt = f"""Analyse le sentiment du texte suivant et réponds UNIQUEMENT par: positif, négatif, ou neutre.
+                # Sentiment analysis with AI
+                sentiment_prompt = f"""Analyze the sentiment of the following text and respond ONLY with: positive, negative, or neutral.
 
-Texte: {text[:500]}
+Text: {text[:500]}
 
 Sentiment:"""
-                sentiment_response = self.llm.invoke(sentiment_prompt)
+                sentiment_response = generate_text(self.ai_backend, sentiment_prompt)
                 sentiment = sentiment_response.strip().lower()
                 
-                # Génération d'un résumé IA
+                # Generate AI summary
                 ai_summary = self.generate_smart_summary(text)
                 
             except Exception as e:
-                logger.warning(f"Erreur analyse IA: {e}")
+                logger.warning(f"AI analysis error: {e}")
         
         return TextAnalysisResult(
             word_count=len(words),
@@ -649,37 +666,37 @@ Sentiment:"""
         )
         
     def summarize_text(self, text: str, max_length: int = 150) -> SummaryResult:
-        """Résumé du texte avec IA"""
-        # Utiliser l'IA pour le résumé si disponible
+        """Text summary with AI"""
+        # Use AI for summary if available
         ai_enhanced = False
         summary = ""
         key_points = []
         
-        if self.llm and self.config.use_ai_analysis:
+        if self.ai_backend and self.config.use_ai_analysis:
             try:
                 summary = self.generate_smart_summary(text)
                 ai_enhanced = True
                 
-                # Extraction des points clés avec l'IA
-                key_points_prompt = f"""Extrais 3 points clés maximum du texte suivant sous forme de liste courte:
+                # Extract key points with AI
+                key_points_prompt = f"""Extract maximum 3 key points from the following text as a short list:
 
-Texte: {text}
+Text: {text}
 
-Points clés (un par ligne, commence par -):"""
-                key_points_response = self.llm.invoke(key_points_prompt)
+Key points (one per line, start with -):"""
+                key_points_response = generate_text(self.ai_backend, key_points_prompt)
                 key_points = [point.strip('- ').strip() for point in key_points_response.split('\n') if point.strip().startswith('-')][:3]
                 
             except Exception as e:
-                logger.warning(f"Erreur résumé IA: {e}")
+                logger.warning(f"AI summary error: {e}")
                 ai_enhanced = False
         
-        # Fallback si l'IA n'est pas disponible
+        # Fallback if AI is not available
         if not summary:
             sentences = text.split('.')
             if len(sentences) <= 3:
                 summary = text
             else:
-                # Prendre les premières et dernières phrases
+                # Take first and last sentences
                 summary = '. '.join(sentences[:2] + sentences[-1:])
             
             # Points clés basiques
@@ -697,16 +714,16 @@ Points clés (un par ligne, commence par -):"""
         )
         
     def translate_text(self, text: str, target_lang: str = "en") -> TranslationResult:
-        """Traduction avec IA si disponible"""
-        # Utiliser l'IA pour la traduction si disponible
-        if self.llm and self.config.use_ai_analysis:
+        """Translation with AI if available"""
+        # Use AI for translation if available
+        if self.ai_backend and self.config.use_ai_analysis:
             try:
-                translate_prompt = f"""Traduis le texte suivant en {target_lang}. Réponds UNIQUEMENT avec la traduction, sans commentaire:
+                translate_prompt = f"""Translate the following text to {target_lang}. Respond ONLY with the translation, no commentary:
 
-Texte à traduire: {text}
+Text to translate: {text}
 
-Traduction:"""
-                translated_text = self.llm.invoke(translate_prompt).strip()
+Translation:"""
+                translated_text = generate_text(self.ai_backend, translate_prompt).strip()
                 
                 return TranslationResult(
                     translated_text=translated_text,
@@ -715,9 +732,9 @@ Traduction:"""
                     confidence=0.9
                 )
             except Exception as e:
-                logger.warning(f"Erreur traduction IA: {e}")
+                logger.warning(f"AI translation error: {e}")
         
-        # Fallback : traduction basique (placeholder)
+        # Fallback: basic translation (placeholder)
         return TranslationResult(
             translated_text=f"[TRANSLATION to {target_lang}]: {text}",
             source_language="auto",
@@ -726,12 +743,12 @@ Traduction:"""
         )
         
     def process_multiple_files_with_reasoning(self, file_paths: List[str]) -> Dict[str, Any]:
-        """Traite plusieurs files en utilisant le raisonnement de l'agent IA (identique à l'original)"""
+        """Process multiple files using AI agent reasoning"""
         results = {}
         summary_results = []
         total_warnings = 0
         
-        logger.info(f"[BATCH] Traitement de {len(file_paths)} files...")
+        logger.info(f"[BATCH] Processing {len(file_paths)} files...")
         
         for i, file_path in enumerate(file_paths, 1):
             logger.info(f"[{i}/{len(file_paths)}] Traitement du fichier: {file_path}")
@@ -1072,7 +1089,7 @@ def reason_about_task(query: str) -> str:
 
 @mcp.tool()
 def process_multiple_files(file_paths: List[str]) -> BatchProcessingResult:
-    """Traitement en lot de plusieurs files avec IA"""
+    """Batch processing of multiple files with AI"""
     try:
         result = get_agent().process_multiple_files_with_reasoning(file_paths)
         logger.info(f"Traitement en lot terminé: {len(file_paths)} files")
