@@ -1,16 +1,16 @@
 """
-Agent NLP MCP avec capacités IA complètes - Version Agent Autonome
-=================================================================
+NLP MCP Agent with Full AI Capabilities - Autonomous Agent Version
+================================================================
 
-Agent IA autonome MCP qui peut :
-- Analyser des files et détecter les PII avec intelligence contextuelle
-- Raisonner sur les tâches à accomplir (ReAct pattern)
-- Planifier ses actions de manière autonome
-- Utiliser des outils de manière intelligente
-- Gérer des demandes complexes avec Ollama/Llama
-- Exposer toutes ses capacités via le protocole MCP officiel
+Autonomous AI MCP agent that can:
+- Analyze files and detect PII with contextual intelligence
+- Reason about tasks to accomplish (ReAct pattern)
+- Plan actions autonomously
+- Use tools intelligently
+- Handle complex requests with Groq/Ollama/Llama
+- Expose all capabilities via official MCP protocol
 
-Utilise Ollama/Llama + LangChain pour l'IA, avec fallback intelligent.
+Uses Groq (fast cloud) + Ollama (local fallback) + LangChain for AI, with intelligent backend selection.
 """
 
 import asyncio
