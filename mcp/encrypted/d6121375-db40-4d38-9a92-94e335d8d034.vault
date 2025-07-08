@@ -1,0 +1,14 @@
+{
+    "clients": [
+        {
+            "nom": "Jean Dupont",
+            "email": "jean.dupont@email.com",
+            "telephone": "06 12 34 56 78"
+        },
+        {
+            "nom": "Marie Martin", 
+            "email": "marie.martin@email.com",
+            "telephone": "06 98 76 54 32"
+        }
+    ]
+}

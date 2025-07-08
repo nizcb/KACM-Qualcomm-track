@@ -1,0 +1,29 @@
+{
+  "type": "medical_prescription",
+  "patient": {
+    "name": "Dr. Leblanc",
+    "license": "12345678",
+    "address": "Cabinet Médical du Centre, 789 Rue de la Santé, 75003 Paris"
+  },
+  "prescription": {
+    "date": "2024-03-15",
+    "patient_name": "Pierre Durand",
+    "patient_dob": "1975-08-20",
+    "patient_id": "1 75 08 20 456 789 12",
+    "medications": [
+      {
+        "name": "Paracétamol 500mg",
+        "dosage": "1 comprimé 3 fois par jour",
+        "duration": "5 jours"
+      },
+      {
+        "name": "Ibuprofène 400mg",
+        "dosage": "1 comprimé matin et soir",
+        "duration": "7 jours"
+      }
+    ],
+    "diagnosis": "Syndrome grippal",
+    "notes": "Arrêt de travail de 3 jours recommandé"
+  },
+  "confidential": true
+}

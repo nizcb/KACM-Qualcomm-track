@@ -1,0 +1,13 @@
+DOCUMENT CONFIDENTIEL - CARTE VITALE
+
+Nom: Jean Dupont
+Numéro de sécurité sociale: 1 23 45 67 890 123 45
+Date de naissance: 15/03/1985
+Adresse: 123 Rue de la Paix, 75001 Paris
+Téléphone: 01 23 45 67 89
+Email: jean.dupont@email.com
+
+Carte Vitale numéro: 123456789012345
+Date d'expiration: 12/2025
+
+Ce document contient des informations personnelles sensibles et doit être protégé.

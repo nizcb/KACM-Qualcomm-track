@@ -1,0 +1,18 @@
+{
+  "clients": [
+    {
+      "id": 1,
+      "nom": "Jean Dupont",
+      "email": "jean.dupont@email.com",
+      "telephone": "06 12 34 56 78",
+      "adresse": "123 Rue de la Paix, 75001 Paris"
+    },
+    {
+      "id": 2,
+      "nom": "Marie Martin",
+      "email": "marie.martin@email.com",
+      "telephone": "06 98 76 54 32",
+      "carte_bancaire": "4532 1234 5678 9012"
+    }
+  ]
+}

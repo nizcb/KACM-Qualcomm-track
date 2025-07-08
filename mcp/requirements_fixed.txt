@@ -1,0 +1,61 @@
+# Multi-Agent System Requirements (Version Compatible)
+# ===================================
+
+# Core Web et Communication
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+httpx>=0.24.0
+websockets>=11.0.0
+
+# Intelligence Artificielle
+langchain>=0.1.0
+langchain-community>=0.1.0
+langchain-core>=0.1.0
+# ollama>=0.1.0
+
+# Traitement NLP
+PyPDF2>=3.0.0
+pymupdf>=1.22.0
+python-docx>=0.8.11
+
+# Traitement Vision
+opencv-python>=4.8.0
+pillow>=10.0.0
+numpy>=1.24.0
+
+# Traitement Audio
+librosa>=0.10.0
+soundfile>=0.12.0
+pydub>=0.25.0
+
+# Sécurité et Chiffrement
+cryptography>=41.0.0
+
+# Utilitaires système
+psutil>=5.9.0
+requests>=2.31.0
+typing-extensions>=4.5.0
+python-dotenv>=1.0.0
+python-magic>=0.4.27
+
+# Interface Desktop
+# tkinter (inclus avec Python sur Windows)
+customtkinter>=5.2.0
+pillow>=10.0.0
+ttkbootstrap>=1.10.0
+
+# Logging et Monitoring
+rich>=13.0.0
+
+# Tests et Développement
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Formats de données
+jsonschema>=4.17.0
+pyyaml>=6.0.0
+
+# Base de données
+sqlalchemy>=2.0.0
+# sqlite3 (inclus avec Python par défaut)

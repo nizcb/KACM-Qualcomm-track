@@ -1,0 +1,20 @@
+BULLETIN DE PAIE - CONFIDENTIEL
+
+Entreprise: TechCorp SARL
+Période: Mars 2024
+Employé: Marie Martin
+
+Informations personnelles:
+- Nom: Marie Martin
+- Numéro de sécurité sociale: 2 87 65 43 210 987 65
+- Adresse: 456 Avenue des Fleurs, 69000 Lyon
+- Salaire brut: 3500.00 EUR
+- Salaire net: 2780.00 EUR
+- IBAN: FR14 2004 1010 0505 0001 3M02 606
+
+Cotisations sociales:
+- Sécurité sociale: 245.00 EUR
+- Retraite: 315.00 EUR
+- Chômage: 160.00 EUR
+
+Document confidentiel - Ne pas divulguer
