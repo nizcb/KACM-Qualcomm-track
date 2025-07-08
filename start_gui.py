@@ -18,40 +18,40 @@ def main():
     try:
         # Vérifier Tkinter
         import tkinter as tk
-        print("✅ Interface graphique disponible")
+        print("✅ Graphical interface available")
         
-        # Ajouter le chemin des agents
+        # Add agents path
         agents_path = Path(__file__).parent / "agents"
         if agents_path.exists():
             sys.path.insert(0, str(agents_path))
-            print("✅ Agents chargés")
+            print("✅ Agents loaded")
         
-        # Importer et lancer l'interface
+        # Import and launch interface
         from gui_file_organizer import FileOrganizerGUI
         
-        print("🎨 Création de l'interface...")
+        print("🎨 Creating interface...")
         app = FileOrganizerGUI()
         
-        print("✅ Interface prête!")
-        print("\n📋 Fonctionnalités disponibles:")
-        print("- 🔍 Analyse intelligente des files")
-        print("- 🗂️ Organisation automatique par catégories métier")
-        print("- 🔒 Chiffrement des dossiers sensibles")
-        print("- 📊 Rapports détaillés et statistiques")
-        print("- ⚡ Workflow complet automatisé")
-        print("\n🎯 ZÉRO catégorie 'general' garantie!")
+        print("✅ Interface ready!")
+        print("\n📋 Available features:")
+        print("- 🔍 Intelligent file analysis")
+        print("- 🗂️ Automatic organization by business categories")
+        print("- 🔒 Encryption of sensitive folders")
+        print("- 📊 Detailed reports and statistics")
+        print("- ⚡ Complete automated workflow")
+        print("\n🎯 ZERO 'general' category guaranteed!")
         
-        # Lancer l'interface
-        print("\n🎨 Lancement de l'interface graphique...")
+        # Launch interface
+        print("\n🎨 Launching graphical interface...")
         app.run()
         
     except ImportError as e:
-        print(f"❌ Interface graphique non disponible: {e}")
-        print("💡 Vérifiez que Tkinter est installé")
+        print(f"❌ Graphical interface not available: {e}")
+        print("💡 Check that Tkinter is installed")
         return 1
         
     except Exception as e:
-        print(f"❌ Erreur lors du démarrage: {e}")
+        print(f"❌ Startup error: {e}")
         import traceback
         traceback.print_exc()
         return 1

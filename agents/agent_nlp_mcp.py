@@ -150,11 +150,11 @@ def extract_pdf_content(file_path: str) -> str:
 # ──────────────────────────────────────────────────────────────────────────
 @dataclass
 class NLPConfig:
-    """Configuration pour l'agent NLP avec IA (identique à l'original)"""
+    """Configuration for NLP agent with AI"""
     max_text_length: int = 10000
-    use_ai_analysis: bool = True  # Utiliser l'IA pour l'analyse
+    use_ai_analysis: bool = True  # Use AI for analysis
     llm_model: str = LLAMA_MODEL
-    log_file: str = "logs/nlp_agent.log"
+    log_file: str = str(Path(__file__).parent.parent / "logs" / "nlp_agent.log")
     offline_mode: bool = False
 
 # Modèles Pydantic pour la sortie structurée MCP

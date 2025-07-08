@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Interface Graphique Complète - Organisation Intelligente + Chiffrement
-=====================================================================
+Complete Graphical Interface - Intelligent Organization + Encryption
+===================================================================
 
-Application GUI moderne pour:
-1. Organisation automatique des files (sans "general")
-2. Classification métier intelligente
-3. Chiffrement des dossiers sensibles
-4. Rapports visuels et statistiques
-5. Interface utilisateur intuitive
+Modern GUI application for:
+1. Automatic file organization (without "general")
+2. Intelligent business classification
+3. Encryption of sensitive folders
+4. Visual reports and statistics
+5. Intuitive user interface
 """
 
 import os
@@ -498,11 +498,18 @@ class FileOrganizerGUI:
                 
                 for i, file_info in enumerate(analyzed_files):
                     try:
-                        # Classification par l'agent
+                        # Prepare multi-agent analysis data
+                        multi_agent_analysis = {
+                            "nlp_summary": file_info["summary"],
+                            "contains_pii": file_info["warning"],
+                            "audio_summary": "",
+                            "vision_summary": ""
+                        }
+                        
+                        # Classification by agent
                         classification = self.file_manager.analyze_content_for_organization(
                             file_info["filepath"],
-                            file_info["summary"],
-                            file_info["warning"]
+                            multi_agent_analysis
                         )
                         
                         # Créer la structure de dossiers
